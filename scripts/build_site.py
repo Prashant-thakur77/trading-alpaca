@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 SITE = ROOT / "site"
 
 from build_judge_page import build as build_judge, load as load_scenarios  # noqa: E402
+from landing import build as build_landing  # noqa: E402
 
 # Real, measured figures only. Every number here is reproducible from the repo.
 FACTS = [
@@ -347,7 +348,7 @@ def main() -> int:
     if SITE.exists():
         shutil.rmtree(SITE)
     (SITE / "judge").mkdir(parents=True)
-    (SITE / "index.html").write_text(landing())
+    (SITE / "index.html").write_text(build_landing())
     (SITE / "judge" / "index.html").write_text(build_judge())
     shutil.copytree(SCEN := ROOT / "judge" / "scenarios", SITE / "scenarios")
     shutil.copy(ROOT / "judge" / "vercel.json", SITE / "vercel.json")
