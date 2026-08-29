@@ -15,6 +15,8 @@ import json
 import sys
 from pathlib import Path
 
+from fx import TOKENS, FX_CSS, FX_JS, INTRO_HTML
+
 ROOT = Path(__file__).resolve().parent.parent
 SCENARIOS = ROOT / "judge" / "scenarios"
 OUT = ROOT / "judge" / "index.html"
@@ -43,15 +45,8 @@ def load() -> dict:
     return out
 
 
-CSS = """
+CSS = TOKENS + FX_CSS + """
 *{margin:0;padding:0;box-sizing:border-box;border-radius:0}
-:root{
-  --ground:#000; --ink:#fff; --dim:#9ca3af; --muted:#6b7280;
-  --hair:rgba(255,255,255,.12); --hair2:rgba(255,255,255,.25);
-  --proof:#3ddc97; --alert:#ff5c5c; --caution:#f5a623;
-  --sans:"Inter Tight",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-}
 html{background:var(--ground)}
 body{
   background:var(--ground); color:var(--ink); font-family:var(--sans);
@@ -73,7 +68,7 @@ header{border-bottom:1px solid var(--hair);padding:34px 0}
   text-transform:uppercase;color:var(--muted);text-decoration:none;
   display:inline-block;margin-bottom:26px}
 .home:hover{color:var(--ink)}
-.lede{color:var(--dim);max-width:66ch;margin-top:18px;font-size:16px}
+.lede{color:var(--ink-dim);max-width:66ch;margin-top:18px;font-size:16px}
 .lede strong{color:var(--ink);font-weight:600}
 
 /* ── trace rail: a real pipeline sequence, hence numbered ── */
@@ -89,7 +84,7 @@ header{border-bottom:1px solid var(--hair);padding:34px 0}
 /* ── scenario selector ── */
 .tabs{display:flex;flex-wrap:wrap;gap:1px;background:var(--hair);
   border:1px solid var(--hair);margin:34px 0 0}
-.tab{background:var(--ground);border:0;color:var(--dim);cursor:pointer;
+.tab{background:var(--ground);border:0;color:var(--ink-dim);cursor:pointer;
   font-family:var(--mono);font-size:12px;letter-spacing:.12em;
   text-transform:uppercase;padding:13px 20px;flex:1 1 auto;text-align:left}
 .tab:hover{color:var(--ink)}
@@ -103,9 +98,10 @@ header{border-bottom:1px solid var(--hair);padding:34px 0}
 .pill{font-family:var(--mono);font-size:13px;letter-spacing:.16em;
   text-transform:uppercase;padding:7px 15px;color:var(--ground);font-weight:600}
 .pill.allow{background:var(--proof)}
+.tab[aria-selected="true"]{background:var(--ember);color:#fff}
 .pill.downsize{background:var(--caution)}
-.pill.deny,.pill.fail{background:var(--alert)}
-.verdict .why{color:var(--dim);font-size:14px;max-width:70ch}
+.pill.deny,.pill.fail{background:var(--live)}
+.verdict .why{color:var(--ink-dim);font-size:14px;max-width:70ch}
 
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(184px,1fr));
   gap:1px;background:var(--hair);border:1px solid var(--hair);margin:28px 0}
@@ -114,15 +110,15 @@ header{border-bottom:1px solid var(--hair);padding:34px 0}
   text-transform:uppercase;color:var(--muted)}
 .kpi .v{font-family:var(--mono);font-size:19px;margin-top:7px;
   font-variant-numeric:tabular-nums}
-.kpi .v.good{color:var(--proof)} .kpi .v.bad{color:var(--alert)}
+.kpi .v.good{color:var(--proof)} .kpi .v.bad{color:var(--live)}
 .kpi .v.warn{color:var(--caution)}
 
 /* ── the not-green explainer: present only when something isn't green ── */
-.notes{border:1px solid var(--alert);padding:20px 22px;margin:0 0 30px}
-.notes h2{color:var(--alert);margin-bottom:12px}
+.notes{border:1px solid var(--live);padding:20px 22px;margin:0 0 30px}
+.notes h2{color:var(--live);margin-bottom:12px}
 .notes ul{list-style:none;display:flex;flex-direction:column;gap:9px}
-.notes li{font-size:14px;color:var(--dim);padding-left:17px;position:relative}
-.notes li::before{content:"—";position:absolute;left:0;color:var(--alert)}
+.notes li{font-size:14px;color:var(--ink-dim);padding-left:17px;position:relative}
+.notes li::before{content:"—";position:absolute;left:0;color:var(--live)}
 
 section.panel{border-top:1px solid var(--hair);padding:28px 0}
 .phead{display:flex;align-items:baseline;gap:13px;margin-bottom:16px}
@@ -136,7 +132,7 @@ section.panel{border-top:1px solid var(--hair);padding:28px 0}
 .view .p{font-family:var(--mono);font-size:20px;font-variant-numeric:tabular-nums}
 .view .model{font-family:var(--mono);font-size:10px;color:var(--muted);
   margin-left:auto}
-.view .txt{color:var(--dim);font-size:14px;margin-top:10px;max-width:78ch}
+.view .txt{color:var(--ink-dim);font-size:14px;margin-top:10px;max-width:78ch}
 
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--hair);
   border:1px solid var(--hair)}
@@ -145,10 +141,10 @@ section.panel{border-top:1px solid var(--hair);padding:28px 0}
 
 .badge{font-family:var(--mono);font-size:11px;letter-spacing:.14em;
   text-transform:uppercase;padding:3px 9px;border:1px solid currentColor}
-.badge.ok{color:var(--proof)} .badge.no{color:var(--alert)}
+.badge.ok{color:var(--proof)} .badge.no{color:var(--live)}
 .badge.na{color:var(--muted)}
 
-pre{font-family:var(--mono);font-size:12px;line-height:1.62;color:var(--dim);
+pre{font-family:var(--mono);font-size:12px;line-height:1.62;color:var(--ink-dim);
   background:#050505;border:1px solid var(--hair);padding:17px 19px;
   overflow-x:auto;white-space:pre}
 table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;
@@ -157,14 +153,14 @@ table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px
 th{text-align:left;color:var(--muted);font-weight:400;letter-spacing:.12em;
   text-transform:uppercase;font-size:10px;padding:10px 13px;
   border-bottom:1px solid var(--hair)}
-td{padding:9px 13px;border-bottom:1px solid var(--hair);color:var(--dim)}
+td{padding:9px 13px;border-bottom:1px solid var(--hair);color:var(--ink-dim)}
 tr:last-child td{border-bottom:0}
 td.pick{color:var(--ink)} tr.chosen{background:rgba(61,220,151,.07)}
 tr.chosen td{color:var(--ink)}
 
 .prov{border-left:2px solid var(--hair2);padding:11px 0 11px 16px;
   color:var(--muted);font-size:12.5px;max-width:80ch;margin-top:16px}
-.prov b{color:var(--dim);font-weight:600}
+.prov b{color:var(--ink-dim);font-weight:600}
 
 footer{border-top:1px solid var(--hair);margin-top:44px;padding:34px 0 60px;
   color:var(--muted);font-size:13px}
@@ -172,7 +168,7 @@ footer .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr
   gap:28px;margin-top:18px}
 footer li{list-style:none;margin-bottom:7px;padding-left:15px;position:relative}
 footer li::before{content:"·";position:absolute;left:3px}
-code{font-family:var(--mono);color:var(--dim);font-size:12px}
+code{font-family:var(--mono);color:var(--ink-dim);font-size:12px}
 @media(prefers-reduced-motion:no-preference){
   .fade{animation:f .45s cubic-bezier(.22,.61,.36,1) both}
   @keyframes f{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
@@ -290,10 +286,10 @@ function render(key){
   h += panel(3, `<div class="grid2">
       <div><div class="eyebrow">Thesis check · pure code</div>
         <div style="margin:10px 0">${badge(v.thesis ? v.thesis.ok : null)}</div>
-        <div class="txt" style="color:var(--dim);font-size:13px">${esc((v.thesis && v.thesis.reason) || 'not run')}</div></div>
+        <div class="txt" style="color:var(--ink-dim);font-size:13px">${esc((v.thesis && v.thesis.reason) || 'not run')}</div></div>
       <div><div class="eyebrow">Blind reviewer · starved of the debate</div>
         <div style="margin:10px 0">${badge(v.blind ? v.blind.ok : null)}</div>
-        <div class="txt" style="color:var(--dim);font-size:13px">${esc((v.blind && v.blind.reason) || 'not run')}</div></div>
+        <div class="txt" style="color:var(--ink-dim);font-size:13px">${esc((v.blind && v.blind.reason) || 'not run')}</div></div>
     </div>
     <div class="prov">Two reviewers that fail differently: one is deterministic code checking the
       position's delta against the structure's own thesis, the other a model shown the candidate
@@ -304,7 +300,7 @@ function render(key){
   h += panel(4, g ? `<div class="grid2">
       <div><div class="eyebrow">Verdict</div>
         <div class="mono" style="font-size:20px;margin-top:8px;color:${
-          g.decision==='DENY'?'var(--alert)':g.decision==='ALLOW'?'var(--proof)':'var(--caution)'}">${esc(g.decision)}</div></div>
+          g.decision==='DENY'?'var(--live)':g.decision==='ALLOW'?'var(--proof)':'var(--caution)'}">${esc(g.decision)}</div></div>
       <div><div class="eyebrow">Approved contracts</div>
         <div class="mono" style="font-size:20px;margin-top:8px">${g.approved_contracts}</div></div>
     </div><div class="prov">${esc(g.reason)}</div>
@@ -384,7 +380,9 @@ def build() -> str:
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>{CSS}</style>
+{INTRO_HTML}
 
+<nav style="position:static;background:none;border:0"></nav>
 <header><div class="wrap">
   <a class="home" href="/">← Trading Alpaca</a>
   <div class="eyebrow">Alpaca AI Trading Agents · Options Alpha</div>
@@ -420,6 +418,7 @@ def build() -> str:
 window.__SCENARIOS__ = {json.dumps(data)};
 window.__RAIL__ = {json.dumps(RAIL)};
 </script>
+<script>{FX_JS}</script>
 <script>{JS}</script>
 """
 

@@ -17,6 +17,8 @@ typed in by hand, so the page cannot drift from the data or overstate it.
 import json
 from pathlib import Path
 
+from fx import TOKENS, FX_CSS, FX_JS, INTRO_HTML
+
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "https://github.com/Prashant-thakur77/trading-alpaca"
 
@@ -103,13 +105,9 @@ def evidence_rows() -> str:
     return "".join(out)
 
 
-CSS = """
+CSS = TOKENS + FX_CSS + """
 *{margin:0;padding:0;box-sizing:border-box;border-radius:0}
-:root{--ground:#000;--ink:#fff;--dim:#9ca3af;--muted:#6b7280;
- --hair:rgba(255,255,255,.12);--hair2:rgba(255,255,255,.25);
- --proof:#3ddc97;--alert:#ff5c5c;--caution:#f5a623;
- --sans:"Inter Tight",-apple-system,BlinkMacSystemFont,sans-serif;
- --mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
+
 html{background:var(--ground);scroll-behavior:smooth}
 body{background:var(--ground);color:var(--ink);font-family:var(--sans);
  -webkit-font-smoothing:antialiased;line-height:1.5;overflow-x:hidden}
@@ -132,7 +130,7 @@ nav .in{max-width:1220px;margin:0 auto;padding:15px 30px;display:flex;
 nav .brand{font-weight:800;text-transform:uppercase;letter-spacing:-.02em;font-size:16px}
 nav .links{display:flex;gap:26px;margin-left:auto}
 nav .links a{font-family:var(--mono);font-size:11px;letter-spacing:.15em;
- text-transform:uppercase;color:var(--dim)}
+ text-transform:uppercase;color:var(--ink-dim)}
 nav .links a:hover{color:var(--ink)}
 @media(max-width:820px){nav .links{display:none}}
 
@@ -151,7 +149,7 @@ nav .links a:hover{color:var(--ink)}
 canvas#f{position:absolute;inset:0;width:100%;height:100%;opacity:.55}
 .hero .in{position:relative;z-index:2;padding:150px 0 100px}
 .hero h1{font-size:clamp(44px,9vw,132px);margin-top:26px}
-.hero .sub{color:var(--dim);max-width:58ch;margin-top:32px;font-size:17px}
+.hero .sub{color:var(--ink-dim);max-width:58ch;margin-top:32px;font-size:17px}
 .hero .sub b{color:var(--ink);font-weight:600}
 .cta{display:flex;gap:13px;flex-wrap:wrap;margin-top:44px}
 .scroll{position:absolute;bottom:34px;left:30px;z-index:2}
@@ -162,12 +160,22 @@ canvas#f{position:absolute;inset:0;width:100%;height:100%;opacity:.55}
 .facts .n{font-family:var(--mono);font-size:26px;font-variant-numeric:tabular-nums}
 .facts .l{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.4}
 .facts>div:last-child .n{color:var(--proof)}
+.facts>div:first-child{background:var(--ember)}
+.facts>div:first-child .n,.facts>div:first-child .l{color:#fff}
+.hero .st b,.st em{color:var(--ember);font-style:normal}
+.mq{background:var(--ember)}.mq .i{color:#fff}.mq em{color:#0b0c0f}
+.card[data-open="1"]{background:var(--ground-2)}
+.card[data-open="1"] .tgl{color:var(--ember)}
+.btn{background:var(--ember);border-color:var(--ember);color:#fff}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--hair2)}
+.desk>div:nth-child(2){background:var(--ground-2)}
+.act:hover h2{color:var(--ember);transition:color .3s var(--ease)}
 
 section{border-bottom:1px solid var(--hair)}
 .pad{padding:110px 0}
 .ed{display:grid;grid-template-columns:1.05fr .95fr;gap:64px;align-items:start}
 .ed h2{font-size:clamp(28px,4.1vw,54px)}
-.note{color:var(--dim);font-size:16px;max-width:52ch;padding-top:10px}
+.note{color:var(--ink-dim);font-size:16px;max-width:52ch;padding-top:10px}
 .note b{color:var(--ink);font-weight:600}
 
 /* expandable pipeline cards */
@@ -188,7 +196,7 @@ section{border-bottom:1px solid var(--hair)}
 .card[data-open="1"] .body{grid-template-rows:1fr}
 .card .body>div{overflow:hidden}
 .card .inner{padding:0 0 34px 106px;display:grid;grid-template-columns:1.4fr .6fr;gap:44px}
-.card p{color:var(--dim);font-size:15px;max-width:70ch}
+.card p{color:var(--ink-dim);font-size:15px;max-width:70ch}
 .stat{display:flex;flex-direction:column;gap:14px}
 .stat div{border-left:1px solid var(--hair2);padding-left:14px}
 .stat .v{font-family:var(--mono);font-size:19px}
@@ -203,7 +211,7 @@ section{border-bottom:1px solid var(--hair)}
 @media(prefers-reduced-motion:reduce){.mq-t{animation:none}}
 @keyframes sl{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 .mq .i{font-family:var(--mono);font-size:12px;letter-spacing:.18em;
- text-transform:uppercase;color:var(--dim);padding:0 30px}
+ text-transform:uppercase;color:var(--ink-dim);padding:0 30px}
 .mq em{color:var(--proof);font-style:normal;padding-left:30px}
 
 /* desk */
@@ -215,7 +223,7 @@ section{border-bottom:1px solid var(--hair)}
  text-transform:uppercase}
 .desk .job{color:var(--ink);font-size:15px;font-weight:600}
 .desk .model{font-family:var(--mono);font-size:10px;color:var(--muted)}
-.desk .q{color:var(--dim);font-size:14px;border-left:2px solid var(--hair2);
+.desk .q{color:var(--ink-dim);font-size:14px;border-left:2px solid var(--hair2);
  padding-left:14px;margin-top:6px}
 @media(max-width:820px){.desk,.ed,.facts{grid-template-columns:1fr}}
 
@@ -226,18 +234,18 @@ table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px
 th{text-align:left;color:var(--muted);font-weight:400;letter-spacing:.13em;
  text-transform:uppercase;font-size:10px;padding:13px 17px;
  border-bottom:1px solid var(--hair)}
-td{padding:12px 17px;border-bottom:1px solid var(--hair);color:var(--dim)}
+td{padding:12px 17px;border-bottom:1px solid var(--hair);color:var(--ink-dim)}
 tr:last-child td{border-bottom:0}
-td.loss{color:var(--alert)}
-.caveat{border-left:2px solid var(--alert);padding:16px 0 16px 19px;margin-top:30px;
- color:var(--dim);font-size:14px;max-width:82ch}
+td.loss{color:var(--live)}
+.caveat{border-left:2px solid var(--live);padding:16px 0 16px 19px;margin-top:30px;
+ color:var(--ink-dim);font-size:14px;max-width:82ch}
 .caveat b{color:var(--ink);font-weight:600}
 .checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));
  gap:1px;background:var(--hair);border:1px solid var(--hair);margin-top:44px}
 .checks>div{background:var(--ground);padding:22px 24px}
 .checks .c{font-family:var(--mono);font-size:11px;color:var(--proof);
  letter-spacing:.14em;text-transform:uppercase}
-.checks .d{color:var(--dim);font-size:14px;margin-top:9px}
+.checks .d{color:var(--ink-dim);font-size:14px;margin-top:9px}
 .checks code{font-family:var(--mono);font-size:12px;color:var(--ink)}
 
 .act{display:grid;grid-template-columns:78px 1fr auto;gap:28px;align-items:center;
@@ -245,7 +253,7 @@ td.loss{color:var(--alert)}
 .act .idx{font-family:var(--mono);font-size:12px;color:var(--muted)}
 .act h2{font-weight:800;text-transform:uppercase;
  font-size:clamp(21px,2.7vw,33px);letter-spacing:-.015em}
-.act .s{color:var(--dim);font-size:15px;margin-top:9px;max-width:58ch}
+.act .s{color:var(--ink-dim);font-size:15px;margin-top:9px;max-width:58ch}
 @media(max-width:820px){.act{grid-template-columns:1fr;gap:18px}}
 
 footer{padding:64px 0 80px;color:var(--muted);font-size:13px}
@@ -253,7 +261,7 @@ footer .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr
  gap:34px;margin-top:26px}
 footer li{list-style:none;margin-bottom:8px;padding-left:15px;position:relative}
 footer li::before{content:"·";position:absolute;left:3px}
-code{font-family:var(--mono);font-size:12px;color:var(--dim)}
+code{font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
 @media(prefers-reduced-motion:no-preference){
  .rv{opacity:0;transform:translateY(24px);
   transition:opacity .8s cubic-bezier(.22,.61,.36,1),transform .8s cubic-bezier(.22,.61,.36,1)}
@@ -325,26 +333,29 @@ def build() -> str:
          "lives there and nowhere else."),
     ])
 
+    INTRO = INTRO_HTML
+    FXJS = FX_JS
     return f"""<title>Trading Alpaca</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>{CSS}</style>
+{INTRO}
 
 <nav><div class="in"><a class="brand" href="/">Trading Alpaca</a>
   <div class="links">{nav}</div>
   <a class="btn sm" href="/judge">Replay →</a></div></nav>
 
-<section class="hero"><canvas id="f" aria-hidden="true"></canvas>
+<section class="hero" data-cursor="scroll"><canvas id="f" aria-hidden="true"></canvas>
   <div class="wrap in">
-    <p class="tag">Alpaca AI Trading Agents · Options Alpha</p>
-    <h1 class="st">The model can<br>refuse. It cannot<br>invent.</h1>
+    <p class="tag" data-mono>Alpaca AI Trading Agents · Options Alpha</p>
+    <h1 class="st" data-split>The model can<br>refuse. It cannot<br>invent.</h1>
     <p class="sub">An options desk where deterministic code builds every trade and the
       language model's only power is to <b>choose one or abstain</b>. It cannot invent a
       strike, change a quantity, or move a limit price — not because it was instructed
       not to, but because <b>no code path allows it</b>.</p>
-    <div class="cta"><a class="btn" href="/judge">Replay a real decision →</a>
-      <a class="btn ghost" href="{REPO}">Read the code</a></div>
+    <div class="cta"><a class="btn" data-magnetic href="/judge">Replay a real decision →</a>
+      <a class="btn ghost" data-magnetic href="{REPO}">Read the code</a></div>
   </div>
   <div class="scroll tag">Scroll</div>
 </section>
@@ -400,11 +411,11 @@ def build() -> str:
 </div></section>
 
 <section><div class="wrap">
-  <div class="act rv"><span class="idx">( 01 )</span>
+  <div class="act rv" data-cursor="replay"><span class="idx">( 01 )</span>
     <div><h2>Replay a real decision</h2><p class="s">Four recorded cycles, including two
       refusals. Verdicts are recomputed in your browser from the committed fixtures.</p></div>
-    <a class="btn" href="/judge">Open the judge desk →</a></div>
-  <div class="act rv"><span class="idx">( 02 )</span>
+    <a class="btn" data-magnetic href="/judge">Open the judge desk →</a></div>
+  <div class="act rv" data-cursor="github"><span class="idx">( 02 )</span>
     <div><h2>Check it yourself</h2><p class="s">Clone it and run the verifier offline with
       the environment stripped. It reproduces the same verdicts.</p></div>
     <a class="btn ghost" href="{REPO}">View on GitHub</a></div>
@@ -419,5 +430,6 @@ def build() -> str:
       <li>Guard verdicts are recomputed, not copied.</li>
       <li>Known gaps are tracked in the repository, not hidden.</li></ul>
   </div></div></footer>
+<script>{FXJS}</script>
 <script>{JS}</script>
 """
