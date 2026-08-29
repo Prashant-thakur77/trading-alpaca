@@ -144,6 +144,15 @@ def test_journal_failure_on_denial_still_returns_a_verdict(executor, tmp_path):
     assert cli.posted == []
 
 
+def test_greek_breach_is_denied_and_never_sent(executor):
+    """A candidate that would breach the net-delta limit must not be submitted."""
+    cli = FakeCLI()
+    result = executor(cli).submit(_intent(), _flat(), position_delta=99.0)
+    assert result.status == "denied"
+    assert "delta" in result.reason.lower()
+    assert cli.posted == []
+
+
 def test_poll_rechecks_until_filled(executor):
     """The loop must actually re-poll: first two checks pending, third fills."""
     cli = FakeCLI(statuses=["new", "accepted", "filled"])

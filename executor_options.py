@@ -32,8 +32,9 @@ class OptionsExecutor:
         self.cli, self.guard, self.journal = cli, guard, journal
         self._clock, self._sleep = clock, sleep
 
-    def submit(self, intent, state, poll_seconds: int = 30) -> ExecutionResult:
-        verdict = self.guard.evaluate(intent, state)
+    def submit(self, intent, state, poll_seconds: int = 30,
+               position_delta: float = 0.0, position_vega: float = 0.0) -> ExecutionResult:
+        verdict = self.guard.evaluate(intent, state, position_delta, position_vega)
         self._record("verdict", {
             "underlying": getattr(intent, "underlying", "?"),
             "structure": getattr(intent, "structure", "?"),
