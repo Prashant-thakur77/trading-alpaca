@@ -160,9 +160,42 @@ class TestPositionGreeks:
         delta, _ = position_greeks(self._spread(), spot=450.0)
         assert abs(delta) > 1.0   # would be < 1 if the 100x were missing
 
-    def test_unpriceable_leg_yields_zero_not_an_exception(self):
-        """Fail closed: a leg we cannot price contributes nothing rather than
-        raising mid-scan."""
+    def test_nonpositive_spot_returns_the_none_sentinel(self):
+        """Renamed from test_unpriceable_leg_yields_zero_not_an_exception, which
+        never reached the per-leg branch it claimed to test: spot<=0 short-
+        circuits at the top. What it does test is missing spot, and (0.0, 0.0)
+        was the wrong answer for that — zero Greeks sail through every limit.
+        No spot means no measurement, which must force an abstain."""
         from analytics import position_greeks
-        d, v = position_greeks(self._spread(), spot=0.0)
-        assert d == 0.0 and v == 0.0
+        assert position_greeks(self._spread(), spot=0.0) is None
+
+    def test_none_intent_returns_the_none_sentinel(self):
+        from analytics import position_greeks
+        assert position_greeks(None, spot=450.0) is None
+
+    def test_one_unpriceable_leg_returns_none_not_the_other_legs_greeks(self):
+        """The real per-leg case, with a valid spot.
+
+        A long straddle struck at 400 with spot 450: the call is deep ITM and
+        its quote sits below intrinsic, so no IV solves it, while the put
+        prices fine. Dropping the call and returning the put's Greeks reports
+        delta -12.1 for a position whose true delta is roughly +90 — wrong
+        sign and wrong magnitude, and it passes the |delta| <= 30 limit that
+        the real position would breach. A partial answer is worse than none."""
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from datetime import date, timedelta
+        from analytics import position_greeks, implied_vol, time_to_expiry_years
+        from candidate_builder import OptionQuote, build_long_straddle
+
+        exp = date.today() + timedelta(days=30)
+        call = OptionQuote("SPY400C", "SPY", 400.0, exp, "c", 3.00, 3.10, 500)
+        put = OptionQuote("SPY400P", "SPY", 400.0, exp, "p", 3.00, 3.10, 500)
+        straddle = build_long_straddle(call, put)
+        assert straddle is not None
+
+        t = time_to_expiry_years(30)
+        assert implied_vol(call.mid, 450.0, 400.0, t, "c") is None   # unpriceable
+        assert implied_vol(put.mid, 450.0, 400.0, t, "p") is not None  # priceable
+
+        assert position_greeks(straddle, spot=450.0) is None

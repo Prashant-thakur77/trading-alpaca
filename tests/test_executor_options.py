@@ -25,11 +25,12 @@ def _flat():
 
 
 class FakeCLI:
-    def __init__(self, order=None, statuses=None, raises=False):
+    def __init__(self, order=None, statuses=None, raises=False, filled_qty="0"):
         self.posted, self.raises = [], raises
         self.calls = 0
         self._order = order or {"id": "o-1", "status": "accepted"}
         self._statuses = list(statuses or ["filled"])
+        self._filled_qty = filled_qty
 
     def post_order(self, payload):
         if self.raises:
@@ -40,7 +41,8 @@ class FakeCLI:
     def get_order(self, order_id):
         self.calls += 1
         status = self._statuses.pop(0) if self._statuses else "filled"
-        return {"id": order_id, "status": status, "filled_avg_price": "1.00"}
+        return {"id": order_id, "status": status, "filled_avg_price": "1.00",
+                "filled_qty": self._filled_qty}
 
 
 @pytest.fixture
@@ -170,3 +172,75 @@ def test_poll_rechecks_until_filled(executor):
     result = ex.submit(_intent(), _flat(), poll_seconds=30)
     assert result.status == "filled"
     assert cli.calls >= 3
+
+
+def test_proposal_entry_records_the_exact_wire_payload(executor):
+    """The verdict and the fill are recorded, but the proposal is the entry
+    carrying what actually went to the broker — the one a judge audits against
+    the fill. Assert it is there and that it is the real payload."""
+    cli = FakeCLI()
+    ex = executor(cli)
+    ex.submit(_intent(), _flat())
+    proposals = [e for e in ex.journal.entries() if e["type"] == "proposal"]
+    assert len(proposals) == 1
+    assert proposals[0]["payload"]["payload"] == cli.posted[0]
+
+
+def test_fill_entry_names_the_underlying_and_structure(executor):
+    """A fill payload of {order_id, contracts} cannot answer 'how many trades
+    have I opened in SPY today?' — the per-underlying daily cap is derived
+    from these entries."""
+    cli = FakeCLI()
+    ex = executor(cli)
+    ex.submit(_intent(), _flat())
+    fill = [e for e in ex.journal.entries() if e["type"] == "fill"][0]
+    assert fill["payload"]["underlying"] == "SPY"
+    assert fill["payload"]["structure"] == "bull_put_spread"
+
+
+class _StubVerdict:
+    """A verdict that is neither ALLOW nor DENY — i.e. tomorrow's new member."""
+    decision = "REVIEW"
+    reason = "held for manual review"
+    approved_contracts = 1
+    is_tradeable = False
+
+
+class _StubGuard:
+    def __init__(self, verdict):
+        self._verdict = verdict
+
+    def evaluate(self, *a, **k):
+        return self._verdict
+
+
+def test_a_verdict_that_is_not_tradeable_is_never_sent(tmp_path, monkeypatch):
+    """Gating on `!= DENY` is fail-open by shape: any verdict added later
+    trades by default. The executor must require is_tradeable."""
+    monkeypatch.delenv("KILL", raising=False)
+    cli = FakeCLI()
+    ex = OptionsExecutor(cli, _StubGuard(_StubVerdict()), Journal(tmp_path / "j.jsonl"))
+    result = ex.submit(_intent(), _flat())
+    assert cli.posted == []
+    assert result.status == "denied"
+    assert "review" in result.reason.lower()
+
+
+def test_partial_fill_is_reported_as_partial_not_pending(executor):
+    """A partially filled multi-leg order has real spreads working in the
+    market. Reporting it as 'pending' with the full contract count overstates
+    what filled and understates what is still live."""
+    cli = FakeCLI(statuses=["partially_filled"], filled_qty="1")
+    result = executor(cli).submit(_intent(contracts=2), _flat(), poll_seconds=0)
+    assert result.status == "partially_filled"
+    assert result.contracts == 1          # what filled, not what was requested
+    assert result.order_id == "o-1"
+
+
+def test_partial_fill_is_journalled_with_what_filled(executor):
+    cli = FakeCLI(statuses=["partially_filled"], filled_qty="1")
+    ex = executor(cli)
+    ex.submit(_intent(contracts=2), _flat(), poll_seconds=0)
+    entry = [e for e in ex.journal.entries() if e["type"] == "partial_fill"][0]
+    assert entry["payload"]["filled_contracts"] == 1
+    assert entry["payload"]["requested_contracts"] == 2

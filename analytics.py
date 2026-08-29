@@ -129,18 +129,26 @@ def greeks(
     return g
 
 
-def position_greeks(intent, spot: float) -> tuple[float, float]:
+def position_greeks(intent, spot: float) -> tuple[float, float] | None:
     """Net (delta, vega) for a whole position, in position terms.
 
     Per-share Greeks scaled by side (short legs negate), the 100-share contract
     multiplier, and the contract count — which is what RiskGuard's
     |net delta| and |net vega| limits are expressed in.
 
-    IV is solved from each leg's mid price. A leg we cannot price contributes
-    zero rather than raising, so one bad quote cannot abort a scan.
+    Returns **None** when the position cannot be measured: no intent, no spot,
+    or any leg whose IV will not solve (a quote below intrinsic, a zero bid).
+    None is a sentinel the caller must treat as an abstain — it is never a
+    number and must never be coerced to one.
+
+    Skipping an unpriceable leg and returning the rest would be worse than
+    useless: a long straddle with one deep-ITM leg dropped reports delta -12
+    for a position that is really about +90, so a book that breaches the
+    |delta| <= 30 limit measures as comfortably inside it. Partial Greeks are
+    a wrong answer wearing the costume of a right one.
     """
     if intent is None or spot <= 0:
-        return 0.0, 0.0
+        return None
 
     t = time_to_expiry_years(intent.dte)
     net_delta = net_vega = 0.0
@@ -148,7 +156,12 @@ def position_greeks(intent, spot: float) -> tuple[float, float]:
         q = leg.quote
         iv = implied_vol(q.mid, spot, q.strike, t, q.right)
         if iv is None:
-            continue
+            logger.warning(
+                "Cannot price leg %s (mid=%.2f S=%.2f K=%.2f %s) — position "
+                "Greeks are unmeasurable, abstaining", q.symbol, q.mid, spot,
+                q.strike, q.right,
+            )
+            return None
         g = greeks(q.right, spot, q.strike, t, iv)
         sign = -1.0 if leg.side == "sell" else 1.0
         scale = sign * CONTRACT_MULTIPLIER * leg.contracts

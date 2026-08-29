@@ -10,17 +10,28 @@ import time
 from dataclasses import dataclass
 
 from options_orders import build_mleg_payload
-from risk_guard import Verdict
 
 logger = logging.getLogger(__name__)
 
+
 TERMINAL_FILLED = {"filled"}
 TERMINAL_DEAD = {"canceled", "expired", "rejected", "done_for_day"}
+# Not terminal — a partial can still complete — but it needs its own outcome:
+# real spreads are working in the market and fewer filled than were requested.
+PARTIAL = "partially_filled"
+
+
+def _int_or_zero(value) -> int:
+    """Broker quantities arrive as strings and may be absent. Never raise."""
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 @dataclass(frozen=True)
 class ExecutionResult:
-    status: str          # "filled" | "pending" | "rejected" | "denied"
+    status: str          # "filled" | "partially_filled" | "pending" | "rejected" | "denied"
     order_id: str = ""
     filled: bool = False
     reason: str = ""
@@ -38,13 +49,16 @@ class OptionsExecutor:
         self._record("verdict", {
             "underlying": getattr(intent, "underlying", "?"),
             "structure": getattr(intent, "structure", "?"),
-            "decision": verdict.decision.value,
+            "decision": getattr(verdict.decision, "value", str(verdict.decision)),
             "reason": verdict.reason,
             "approved_contracts": verdict.approved_contracts,
         })
 
-        if verdict.decision == Verdict.DENY:
-            logger.info("Order denied by guard: %s", verdict.reason)
+        # Fail closed by shape: require an affirmatively tradeable verdict
+        # rather than "not DENY". If a verdict member is ever added, it denies
+        # by default instead of trading by default.
+        if not verdict.is_tradeable:
+            logger.info("Order not tradeable (%s): %s", verdict.decision, verdict.reason)
             return ExecutionResult("denied", reason=verdict.reason)
 
         contracts = verdict.approved_contracts
@@ -59,17 +73,43 @@ class OptionsExecutor:
             return ExecutionResult("rejected", reason=str(e), contracts=contracts)
 
         order_id = str(order.get("id", ""))
-        status = self._poll(order_id, poll_seconds)
+        underlying = getattr(intent, "underlying", "?")
+        structure = getattr(intent, "structure", "?")
+        last = self._poll(order_id, poll_seconds)
+        status = str(last.get("status", "new"))
 
         if status in TERMINAL_FILLED:
-            self._record("fill", {"order_id": order_id, "contracts": contracts})
+            self._record("fill", {
+                "order_id": order_id, "contracts": contracts,
+                "underlying": underlying, "structure": structure,
+            })
             return ExecutionResult("filled", order_id, True, "filled", contracts)
 
         if status in TERMINAL_DEAD:
-            self._record("rejected", {"order_id": order_id, "status": status})
+            self._record("rejected", {
+                "order_id": order_id, "status": status,
+                "underlying": underlying, "structure": structure,
+            })
             return ExecutionResult("rejected", order_id, reason=status, contracts=contracts)
 
-        self._record("pending", {"order_id": order_id, "status": status})
+        if status == PARTIAL:
+            filled = _int_or_zero(last.get("filled_qty"))
+            self._record("partial_fill", {
+                "order_id": order_id, "filled_contracts": filled,
+                "requested_contracts": contracts,
+                "underlying": underlying, "structure": structure,
+            })
+            return ExecutionResult(
+                PARTIAL, order_id, filled=filled > 0,
+                reason=f"{filled} of {contracts} contract(s) filled; the remainder "
+                       f"is still working at the broker",
+                contracts=filled,
+            )
+
+        self._record("pending", {
+            "order_id": order_id, "status": status, "contracts": contracts,
+            "underlying": underlying, "structure": structure,
+        })
         return ExecutionResult("pending", order_id, reason=status, contracts=contracts)
 
     def _record(self, entry_type: str, payload: dict) -> None:
@@ -81,18 +121,23 @@ class OptionsExecutor:
         except Exception as e:
             logger.error("Journal write failed for %s: %s", entry_type, e, exc_info=True)
 
-    def _poll(self, order_id: str, poll_seconds: int) -> str:
-        """Poll until terminal or the window elapses. Returns the last status."""
+    def _poll(self, order_id: str, poll_seconds: int) -> dict:
+        """Poll until terminal or the window elapses. Returns the last order.
+
+        The whole order is returned, not just its status, because a partial
+        fill's `filled_qty` is what actually reached the market.
+        """
         deadline = self._clock() + poll_seconds
-        status = "new"
+        last: dict = {"status": "new"}
         while True:
             try:
-                status = str(self.cli.get_order(order_id).get("status", "new"))
+                last = self.cli.get_order(order_id) or {}
             except Exception as e:
                 logger.warning("Could not read order %s: %s", order_id, e)
-                return status
+                return last
+            status = str(last.get("status", "new"))
             if status in TERMINAL_FILLED or status in TERMINAL_DEAD:
-                return status
+                return last
             if self._clock() >= deadline:
-                return status
+                return last
             self._sleep(1)
