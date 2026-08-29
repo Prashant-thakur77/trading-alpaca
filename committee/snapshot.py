@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 
 import analytics
 import risk_guard
-from candidate_builder import TradeIntent
+from candidate_builder import CONTRACT_MULTIPLIER, TradeIntent
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,60 @@ def _drop_certain_denials(
     with more of a structure already represented.
     """
     return [c for c in candidates if c.max_loss <= max_loss_cap]
+
+
+# Minimum net credit as a fraction of the width (max loss per contract), for
+# CREDIT structures (bull_put_spread, bear_call_spread, iron_condor) only.
+#
+# Measured live on SPY (2026-08-29, spot 769.35): the cushion-spread ranking
+# fix above (Part B, see `_structure_fill_order`) correctly stopped
+# clustering the surfaced set at the tightest breakevens -- but its wide-
+# cushion end turned out to be populated by far-OTM spreads with negligible
+# credit: c4 and c6 were bear_call_spreads at cushion 7.89%/8.54% collecting
+# $0.02 credit against $498 max loss each -- 249:1 risk against reward. The
+# independent blind reviewer flagged both unprompted, in its own words:
+# "$0.02 credit against $498 max loss is indefensible risk/reward (249:1
+# against trader)" and "Strikes 7.9% OTM should collect far more premium to
+# justify the capital at risk." One unusable menu (tightest-breakeven-only)
+# had been traded for another (worthless-credit-included). 10% of width is a
+# conventional desk floor for a vertical -- do not raise it to chase a higher
+# hit rate against the blind veto, and do not lower it to let more candidates
+# through: the veto's job is to catch what this floor misses, not the other
+# way around.
+MIN_CREDIT_TO_RISK = 0.10
+
+# The three structures this floor applies to. Deliberately a structure-name
+# test, NOT `intent.is_credit` (`net_credit > 0`): a live SPY chain produced
+# bull_put_spread/bear_call_spread candidates with net_credit of $0.00 and
+# even $-0.03 (illiquid far-OTM legs pricing at mid to a net debit). Those
+# are credit-structure candidates in exactly as much trouble as the $0.02
+# case -- more, in the $-0.03 case -- but `is_credit` reads negative/zero
+# credit as "not a credit trade" and would have let them through this filter
+# untouched, re-opening the same hole this fix exists to close. Testing the
+# structure name catches all three regardless of which way net_credit rounds.
+CREDIT_STRUCTURES = {"bull_put_spread", "bear_call_spread", "iron_condor"}
+
+
+def _drop_thin_credit(candidates: list[TradeIntent], min_ratio: float) -> list[TradeIntent]:
+    """Drop CREDIT_STRUCTURES candidates whose net credit is a negligible (or
+    negative/zero) fraction of the capital at risk (see `MIN_CREDIT_TO_RISK`).
+
+    DEBIT structures (long_straddle, not in `CREDIT_STRUCTURES`) are never
+    touched here -- a credit-to-risk floor is meaningless for a trade that
+    pays a debit rather than collects one. They are already filtered on
+    their own max_loss by `_drop_certain_denials`.
+
+    Structure-blind within the credit set and per-candidate, same shape as
+    `_drop_certain_denials`: if it empties one structure entirely,
+    `_stratified_cap` gives the freed slots to whichever structures still
+    have eligible candidates rather than leaving them empty (see its
+    docstring).
+    """
+    return [
+        c for c in candidates
+        if c.structure not in CREDIT_STRUCTURES
+        or c.net_credit * CONTRACT_MULTIPLIER >= min_ratio * (c.max_loss / c.contracts)
+    ]
 
 
 def _breakeven_cushion(intent: TradeIntent, spot: float) -> float:
@@ -424,6 +478,13 @@ def render_snapshot(
     drift from it; pass an explicit value to pin it (tests do this to stay
     independent of risk.yaml's current contents).
 
+    Next, any CREDIT candidate (bull_put_spread, bear_call_spread,
+    iron_condor) whose net credit is a negligible fraction of its max loss is
+    dropped (`_drop_thin_credit`, floor `MIN_CREDIT_TO_RISK`) — see that
+    constant's docstring for the measured live case (a 249:1 risk/reward
+    spread the blind reviewer had to catch by hand) that motivates it. DEBIT
+    candidates (long_straddle) are untouched by this filter.
+
     The surviving candidates are sorted by a canonical key (structure, dte,
     strikes, net credit, contracts) before ids c1..cN are assigned. The list
     is then capped at `max_candidates` via a stratified selection across the
@@ -453,6 +514,7 @@ def render_snapshot(
     if max_loss_cap is None:
         max_loss_cap = _default_max_loss_cap()
     eligible = _drop_certain_denials(candidates, max_loss_cap)
+    eligible = _drop_thin_credit(eligible, MIN_CREDIT_TO_RISK)
     ordered = sorted(eligible, key=_candidate_sort_key)
     total = len(ordered)
     capped = _stratified_cap(ordered, max_candidates, spot)

@@ -143,7 +143,11 @@ def test_unsolvable_iv_is_rendered_as_explicitly_unavailable_not_omitted():
     intent = TradeIntent(
         underlying="SPY", structure="bull_put_spread",
         legs=(Leg(bad, "sell", 1), Leg(bad, "buy", 1)),
-        contracts=1, net_credit=0.0, max_loss=100.0, max_profit=10.0,
+        # net_credit=1.0 against max_loss=100.0 clears the credit-to-risk
+        # floor (see committee/snapshot.MIN_CREDIT_TO_RISK) comfortably --
+        # this fixture is about unsolvable IV rendering, not credit
+        # economics, so it must not incidentally trip an unrelated filter.
+        contracts=1, net_credit=1.0, max_loss=100.0, max_profit=100.0,
         breakevens=(100.0,), dte=30,
     )
     snap = render_snapshot("SPY", 500.0, 0.18, [intent])
@@ -571,3 +575,105 @@ def test_ranking_fix_selection_stays_deterministic_and_order_independent():
     again = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=4,
                             max_loss_cap=1000.0)
     assert again.text == baseline.text
+
+
+# ---- Part A2: a minimum reward-to-risk floor for CREDIT structures ----
+#
+# Measured live on SPY (2026-08-29, spot 769.35): the cushion-spread fix
+# above surfaced c4/c6 bear_call_spread candidates at cushion 7.89%/8.54%
+# collecting $0.02 credit against $498 max loss each -- 249:1 risk against
+# reward. The independent blind reviewer flagged both unprompted: "$0.02
+# credit against $498 max loss is indefensible risk/reward (249:1 against
+# trader)" and "Strikes 7.9% OTM should collect far more premium to justify
+# the capital at risk." One unusable menu (tightest-breakeven-only) was
+# traded for another (worthless-credit-included). These tests pin a credit
+# floor for credit structures, alongside the existing max-loss filter, so
+# committee slots are never spent on objectively indefensible trades.
+
+def _credit_spread_with_ratio(spot, credit, width, contracts=1):
+    """A bear_call_spread with an exact `credit` and `width`, both legs
+    comfortably inside the liquidity gate (spread_pct <= 10%, oi=500).
+    """
+    short_strike = spot + 7.0
+    long_strike = short_strike + width
+    short_mid = 2.0 + credit
+    long_mid = 2.0
+    short = OptionQuote(
+        symbol="SPYTHINS", underlying="SPY", strike=short_strike, expiry=EXPIRY,
+        right="c", bid=short_mid - 0.05, ask=short_mid + 0.05, open_interest=500,
+    )
+    long = OptionQuote(
+        symbol="SPYTHINL", underlying="SPY", strike=long_strike, expiry=EXPIRY,
+        right="c", bid=long_mid - 0.05, ask=long_mid + 0.05, open_interest=500,
+    )
+    intent = build_bear_call_spread(short, long, contracts=contracts)
+    assert intent is not None
+    assert abs(intent.net_credit - credit) < 1e-9
+    return intent
+
+
+def test_credit_spread_with_negligible_credit_to_risk_is_not_surfaced():
+    # $0.02 credit, width $5 -> max_loss $498, the exact live-measured case:
+    # 2 / 498 = 0.4% of capital at risk, nowhere near a defensible floor.
+    thin = _credit_spread_with_ratio(500.0, credit=0.02, width=5.0)
+    assert abs(thin.max_loss - 498.0) < 1e-6
+    healthy = _bull_put(495, 490)
+    s = render_snapshot("SPY", 500.0, 0.18, [healthy, thin], max_loss_cap=1000.0)
+    assert thin not in s.candidates.values()
+    assert healthy in s.candidates.values()
+    assert "0.02" not in s.text
+
+
+def test_credit_spread_comfortably_above_the_floor_is_surfaced():
+    # $2.00 credit, width $5 -> max_loss $300: credit is 2/300 = 66.7% of
+    # risk, well above the 10%-of-width floor.
+    healthy_wide = _credit_spread_with_ratio(500.0, credit=2.0, width=5.0)
+    assert abs(healthy_wide.max_loss - 300.0) < 1e-6
+    s = render_snapshot("SPY", 500.0, 0.18, [healthy_wide], max_loss_cap=1000.0)
+    assert healthy_wide in s.candidates.values()
+
+
+def test_long_straddle_is_not_excluded_by_the_credit_floor():
+    # A debit structure has no "credit" to floor against risk -- it must
+    # survive this filter regardless of how small its net debit's magnitude
+    # looks relative to max_loss, and be excluded only by the max-loss rule
+    # (already covered by test_a_candidate_whose_max_loss_exceeds_the_cap_is_never_surfaced).
+    straddle = _straddle(500)
+    assert not straddle.is_credit
+    s = render_snapshot("SPY", 500.0, 0.18, [straddle], max_loss_cap=10000.0)
+    assert straddle in s.candidates.values()
+
+
+def test_credit_spread_with_zero_or_negative_credit_is_not_surfaced():
+    # A real SPY chain produced bear_call_spread/bull_put_spread candidates
+    # with net_credit of $0.00 and even $-0.03 (illiquid far-OTM legs pricing
+    # to a net debit). `is_credit` (net_credit > 0) reads these as "not a
+    # credit trade" and would skip the floor entirely -- letting through
+    # something worse than the $0.02 case this fix targets. The filter must
+    # key off the structure name, not the credit's sign.
+    zero_credit = _credit_spread_with_ratio(500.0, credit=0.0, width=5.0)
+    negative_credit = _credit_spread_with_ratio(500.0, credit=-0.03, width=5.0)
+    assert not zero_credit.is_credit
+    assert not negative_credit.is_credit
+    healthy = _bull_put(495, 490)
+    s = render_snapshot("SPY", 500.0, 0.18, [healthy, zero_credit, negative_credit],
+                        max_loss_cap=1000.0)
+    assert zero_credit not in s.candidates.values()
+    assert negative_credit not in s.candidates.values()
+    assert healthy in s.candidates.values()
+
+
+def test_credit_floor_emptying_a_structure_lets_the_rest_fill_the_cap():
+    # All bear_call_spreads are thin-credit (below the floor); the bull put
+    # spreads are healthy. The cap must still be filled entirely from the
+    # surviving structure, mirroring _drop_certain_denials' documented
+    # behaviour for the max-loss filter.
+    thin_calls = [
+        _credit_spread_with_ratio(500.0 + i, credit=0.02, width=5.0) for i in range(4)
+    ]
+    healthy_puts = _many_bull_puts(6)
+    s = render_snapshot("SPY", 500.0, 0.18, thin_calls + healthy_puts,
+                        max_candidates=4, max_loss_cap=1000.0)
+    structures = {i.structure for i in s.candidates.values()}
+    assert structures == {"bull_put_spread"}
+    assert len(s.candidates) == 4
