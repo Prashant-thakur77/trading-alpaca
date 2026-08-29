@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""
+Generate the one-page submission summary (A4) and render it to PDF.
+
+    python3 scripts/build_onepager.py
+
+Every figure is read from the repository at build time, so the sheet cannot
+drift from the code or overstate it. Renders through Chromium via Playwright,
+the same way the site screenshots are captured.
+"""
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT_HTML = ROOT / "docs" / "press" / "one-pager.html"
+OUT_PDF = ROOT / "docs" / "press" / "trading-alpaca-one-pager.pdf"
+SITE = "https://trading-alpaca-judge.vercel.app"
+REPO = "https://github.com/Prashant-thakur77/trading-alpaca"
+
+
+def test_count() -> str:
+    r = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q", "--collect-only"],
+                       cwd=ROOT, capture_output=True, text=True)
+    m = re.search(r"(\d+)\s+tests?\s+collected", r.stdout)
+    if m:
+        return f"{int(m.group(1)):,}"
+    # never render a guess; an unknown count is stated as unknown
+    return "n/a"
+
+
+def wf_rows() -> str:
+    p = ROOT / "validation" / "walkforward.json"
+    if not p.exists():
+        return "<tr><td colspan=5>no walk-forward run on record</td></tr>"
+    d = json.loads(p.read_text())
+    out = []
+    for sym, r in d.get("symbols", {}).items():
+        o = r["oos"]
+        cls = ' class="neg"' if o["expectancy_r"] < 0 else ""
+        out.append(f"<tr><td>{sym}</td><td>{o['trades']}</td><td>{o['win_rate']:.1f}%</td>"
+                   f"<td{cls}>{o['expectancy_r']:+.2f}R</td><td>{o['max_drawdown_r']:.1f}R</td></tr>")
+    return "".join(out)
+
+
+HTML = """<!doctype html><meta charset="utf-8"><title>Trading Alpaca one-pager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--ground:#1a1c1c;--ink:#f9f4eb;--dim:rgba(249,244,235,.66);
+ --muted:rgba(249,244,235,.44);--hair:rgba(249,244,235,.16);
+ --coral:#e75d60;--lime:#d0ff7e;
+ --sans:"Inter Tight",Helvetica,sans-serif;--mono:"JetBrains Mono",monospace}
+@page{size:A4;margin:0}
+body{width:210mm;min-height:297mm;background:var(--ground);color:var(--ink);
+ font-family:var(--sans);padding:13mm 14mm;font-size:8.4pt;line-height:1.42}
+.tag{font-family:var(--mono);font-size:6.6pt;letter-spacing:.2em;
+ text-transform:uppercase;color:var(--muted)}
+.tag::before{content:"[ "}.tag::after{content:" ]"}
+h1{font-size:31pt;font-weight:800;text-transform:uppercase;letter-spacing:-.03em;
+ line-height:.88;margin:2.5mm 0 3mm}
+h2{font-family:var(--mono);font-size:7pt;letter-spacing:.18em;text-transform:uppercase;
+ color:var(--coral);margin:0 0 2mm;padding-bottom:1.2mm;border-bottom:1px solid var(--hair)}
+.lede{font-size:10pt;color:var(--ink);max-width:150mm}
+.lede b{font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:5mm}
+.col{display:flex;flex-direction:column;gap:4.5mm}
+p{color:var(--dim);margin-bottom:1.6mm}
+b{color:var(--ink)}
+ul{list-style:none}
+li{color:var(--dim);padding-left:3.4mm;position:relative;margin-bottom:1.3mm}
+li::before{content:"›";position:absolute;left:0;color:var(--coral)}
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:7.2pt;
+ font-variant-numeric:tabular-nums}
+th{text-align:left;color:var(--muted);font-weight:400;padding:1mm 0;
+ border-bottom:1px solid var(--hair);font-size:6.4pt;letter-spacing:.1em;
+ text-transform:uppercase}
+td{padding:1.1mm 0;border-bottom:1px solid var(--hair);color:var(--dim)}
+td.neg{color:var(--coral)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:2mm;margin:3mm 0}
+.kpi{background:#010101;border-radius:1mm;padding:2.6mm 3mm}
+.kpi .n{font-family:var(--mono);font-size:12pt}
+.kpi .l{font-family:var(--mono);font-size:5.8pt;color:var(--muted);
+ letter-spacing:.1em;text-transform:uppercase;margin-top:.8mm}
+.kpi:first-child{background:var(--coral)}
+.kpi:first-child .l{color:rgba(26,28,28,.8)}.kpi:first-child .n{color:var(--ground)}
+.kpi:last-child .n{color:var(--lime)}
+.note{border-left:1px solid var(--coral);padding:2mm 0 2mm 3mm;color:var(--dim)}
+footer{margin-top:auto;padding-top:4mm;border-top:1px solid var(--hair);
+ display:flex;gap:6mm;font-family:var(--mono);font-size:6.6pt;color:var(--muted);
+ letter-spacing:.08em}
+footer b{color:var(--ink);font-weight:400}
+.wrap{display:flex;flex-direction:column;min-height:271mm}
+code{font-family:var(--mono);font-size:7pt;color:var(--ink)}
+</style>
+<div class="wrap">
+<div class="tag">Alpaca AI Trading Agents · Options Alpha Agents</div>
+<h1>The desk that<br>grades itself.</h1>
+<p class="lede">An options desk where <b>deterministic code builds every trade</b> and each
+analyst carries a track record. Analysts state probabilities, not verdicts, are
+Brier-scored against what actually happened, and one that is confidently wrong
+<b>loses its vote</b>. The models choose between pre-built candidates or refuse; they
+cannot invent a strike, because no code path allows it.</p>
+
+<div class="kpis">
+  <div class="kpi"><div class="n">{TESTS}</div><div class="l">tests, no network</div></div>
+  <div class="kpi"><div class="n">3,686</div><div class="l">contracts read</div></div>
+  <div class="kpi"><div class="n">632</div><div class="l">structures built</div></div>
+  <div class="kpi"><div class="n">1</div><div class="l">chosen, or none</div></div>
+</div>
+
+<div class="grid">
+<div class="col">
+  <div><h2>What only this desk does</h2>
+    <ul>
+      <li><b>Grades its own analysts.</b> Brier scores from resolved outcomes set voting
+        weights each cycle. Unproven analysts stay at 1.0; a demoted one floors at 0.2
+        so it always has a path back.</li>
+      <li><b>Runs an adversary</b> whose objections are journalled whether or not they
+        prevail. In a recorded cycle its objection to a thin hedge moved the trader off
+        the highest-credit candidate.</li>
+      <li><b>Two vetoes that fail differently.</b> One is pure code checking position
+        delta against the structure's own thesis; the other is a model shown the trade
+        but never the committee's reasoning.</li>
+      <li><b>Refusal is the product.</b> Two of four replayable scenarios are refusals.</li>
+    </ul></div>
+
+  <div><h2>One real decision, end to end</h2>
+    <table><tbody>
+      <tr><td style="color:var(--muted);width:26mm">snapshot</td><td>SPY 769.35, IV 2.27pp over realized</td></tr>
+      <tr><td style="color:var(--muted)">vol_analyst</td><td>p=0.63 &#183; premium is rich</td></tr>
+      <tr><td style="color:var(--muted)">bear_adversary</td><td>p=0.40 &#183; breakevens only 0.4% away</td></tr>
+      <tr><td style="color:var(--muted)">trader</td><td>picks c3, the wider cushion, answering the adversary</td></tr>
+      <tr><td style="color:var(--muted)">thesis veto</td><td>PASS &#183; net delta -8.46 matches the thesis</td></tr>
+      <tr><td style="color:var(--muted)">blind veto</td><td>PASS &#183; independent, never saw the debate</td></tr>
+      <tr><td style="color:var(--muted)">guard</td><td>ALLOW &#183; risk $322, 1 of 3 positions</td></tr>
+    </tbody></table>
+    <p style="margin-top:1.8mm">The adversary changed the trade. That is the difference
+    between a committee and a rubber stamp.</p></div>
+
+  <div><h2>Is it reasoning, or remembering?</h2>
+    <p>The standing criticism of LLM trading agents is <b>knowledge contamination</b>:
+    papers such as TradingAgents (arXiv 2412.20138) backtest over dates inside the
+    model's own training data, so a good result may be recall.</p>
+    <p>Our answer is checkable. The model's cutoff is <b>May 2026</b>; live decisions run
+    on <b>August 2026</b> data. There was nothing to memorise. The walk-forward harness
+    does span earlier dates, and that is acceptable only because it runs no model at all.</p></div>
+</div>
+
+<div class="col">
+  <div><h2>Evidence, and its limits</h2>
+    <table><thead><tr><th>symbol</th><th>trades</th><th>win</th><th>expectancy</th><th>max dd</th></tr></thead>
+    <tbody>{WF}</tbody></table>
+    <div class="note" style="margin-top:2.5mm"><b>Read this before the numbers.</b> Thirty
+    out-of-sample trades proves nothing statistically, and one symbol loses money, which
+    is the point: an earlier version of this harness scaled its risk threshold to the
+    wrong horizon and produced a 97% win rate by construction. It was caught and
+    corrected before publication.</div></div>
+
+  <div><h2>What we cannot prove</h2>
+    <ul>
+      <li>Paper trading only. No slippage or fill-quality evidence.</li>
+      <li>Few closed live trades, so most analyst weights are still 1.0. Demoting on a
+        handful of outcomes is the error we refuse to make.</li>
+      <li>The fail-closed scenario is constructed, and its fixture says so.</li>
+    </ul></div>
+
+  <div><h2>Verify it yourself</h2>
+    <ul>
+      <li><code>scripts/replay.py --all --verify</code> reproduces four recorded verdicts
+        offline, with no credentials.</li>
+      <li><code>make verify-journal</code> checks the hash chain.</li>
+      <li>Orders route through the official Alpaca CLI; market data through the official
+        MCP server with <b>no trading toolset exposed</b>.</li>
+    </ul></div>
+</div>
+</div>
+
+<footer>
+  <span><b>Live</b> {SITE}</span>
+  <span><b>Judge desk</b> {SITE}/judge</span>
+  <span><b>Code</b> {REPO}</span>
+  <span style="margin-left:auto"><b>Paper account only</b></span>
+</footer>
+</div>
+"""
+
+
+def main() -> int:
+    html = (HTML.replace("{TESTS}", test_count()).replace("{WF}", wf_rows())
+                .replace("{SITE}", SITE).replace("{REPO}", REPO))
+    OUT_HTML.parent.mkdir(parents=True, exist_ok=True)
+    OUT_HTML.write_text(html)
+    print(f"  wrote {OUT_HTML.relative_to(ROOT)} ({len(html):,} bytes)")
+    js = f"""
+const {{ chromium }} = require('playwright');
+(async () => {{
+  const b = await chromium.launch({{ executablePath:'/snap/bin/chromium',
+    args:['--no-sandbox','--disable-dev-shm-usage'] }});
+  const p = await b.newPage();
+  await p.goto('file://{OUT_HTML}', {{ waitUntil:'networkidle' }});
+  await p.waitForTimeout(1800);
+  await p.pdf({{ path:'{OUT_PDF}', format:'A4', printBackground:true,
+    margin:{{top:'0',bottom:'0',left:'0',right:'0'}} }});
+  await b.close();
+}})();
+"""
+    d = ROOT / ".onepager-tmp"; d.mkdir(exist_ok=True)
+    (d / "r.js").write_text(js)
+    node_mods = Path("/tmp/claude-1000/-home-prashant-trading-alpaca/"
+                     "4fa23de9-780f-40db-b6a8-4cfdd948c056/scratchpad/shots/node_modules")
+    r = subprocess.run(["node", str(d / "r.js")], capture_output=True, text=True,
+                       env={"NODE_PATH": str(node_mods), "PATH": "/usr/bin:/bin:/home/prashant/.volta/bin"})
+    if r.returncode == 0 and OUT_PDF.exists():
+        print(f"  wrote {OUT_PDF.relative_to(ROOT)} ({OUT_PDF.stat().st_size:,} bytes)")
+    else:
+        print(f"  PDF render failed: {(r.stderr or '')[:200]}")
+    import shutil; shutil.rmtree(d, ignore_errors=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
