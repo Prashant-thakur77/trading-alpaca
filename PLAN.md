@@ -20,21 +20,37 @@
 ## Phase 2 — Sun Aug 30: Alpaca + options engine + guard + journal (markets closed)
 REORDERED 2026-08-29 into dependency order, zero-credential modules first, so
 work is never blocked on Alpaca paper keys arriving. Rationale in docs/AUDIT.md.
-- [ ] journal.py: hash-chained JSONL + scripts/verify_journal.py (no deps)
-- [ ] analytics.py: realized vol from bars, IV + Greeks via vollib
+- [x] journal.py: hash-chained JSONL + scripts/verify_journal.py (no deps)
+- [x] analytics.py: realized vol from bars, IV + Greeks via vollib
       (import `vollib`, not deprecated `py_vollib` alias; py_vollib is the
       pip install name)
-- [ ] candidate_builder.py: TradeIntent dataclass; builds bull put credit spread,
+- [x] candidate_builder.py: TradeIntent dataclass; builds bull put credit spread,
       bear call credit spread, iron condor, long straddle — fully specified
-- [ ] risk.yaml: single source of truth for every limit in CLAUDE.md
-- [ ] Extend risk_manager.py: risk.yaml + ALLOW/DENY/ALLOW_WITH_DOWNSIZE verdicts,
-      downsizing math, startup checks (fresh acct, options level, no positions),
-      kill switch
-- [ ] alpaca_data.py: stock bars + option-chain fetch via alpaca-py, 15-min
-      cache; retire kraken_data.py  ← needs paper keys for live verification
-- [ ] Point validate.py walk-forward at SPY/QQQ + 2 liquid names (daily bars)
-- [ ] Unit tests: builder 5+, guard 8+, journal 3+
-- [ ] Commit per module
+- [x] risk.yaml: single source of truth for every limit in CLAUDE.md
+- [x] RiskGuard (new risk_guard.py, not an edit to risk_manager.py): risk.yaml +
+      ALLOW/DENY/ALLOW_WITH_DOWNSIZE verdicts, downsizing math, startup checks,
+      kill switch. Kept separate because the guard is *stateless* — one
+      candidate vs one snapshot — which is what makes it exhaustively testable.
+      risk_manager.py keeps the running session P&L/streak state and feeds it in.
+- [x] alpaca_data.py: stock bars + option-chain fetch via alpaca-py, 15-min cache
+      → NOTE: option-chain snapshots carry no open interest; it comes from the
+      trading API's contract records, so the adapter merges both sources.
+      → kraken_data.py NOT yet retired: agent.py + executor.py still depend on
+      it and there is no Alpaca execution layer until Phase 3. Deleting it now
+      would break the build for no gain. Moved to Phase 3.
+- [x] Real walk-forward engine (walkforward.py + scripts/run_walkforward.py)
+      over SPY/QQQ/AAPL/MSFT daily bars
+      → CORRECTION: validate.py was never a walk-forward engine. It was a
+      reporter printing hardcoded 82.2% OOS / 3.79 PF / 366-trade claims
+      inherited from the crypto agent. Those were removed, not adapted.
+- [x] Unit tests: builder 39, guard 34, journal 12, analytics 17, data 16,
+      walkforward 19 → suite 211 passing
+- [x] Commit per module
+
+### Phase 2 leftovers carried into Phase 3
+- [ ] Retire kraken_data.py / kraken_cli.py when executor.py is ported to Alpaca
+- [ ] Run `make walkforward` against live Alpaca data once paper keys exist
+      (engine + tests are done; only the real-data run is outstanding)
 
 Decision: alpaca-py direct for the Phase 2 data/execution layer (unit-testable,
 no server process). alpaca-mcp-server is the Phase 3 agent tool layer.

@@ -80,3 +80,69 @@ Code paths stripped (no no-op stubs left behind):
 `python3 -m pytest tests/ -v` → **74 passed, 0 failed** (was: collection error).
 `make test`, `make validate`, `make verify` all run green.
 `agent.py`, `agent_state.py`, `config.py`, `validate.py` all import cleanly.
+
+---
+
+# Phase 2 audit — Alpaca + options engine + guard + journal
+
+Date: 2026-08-29. Two inherited premises turned out to be wrong; both are
+recorded here because they change what later phases can assume.
+
+## Correction 1: validate.py was not a walk-forward engine
+
+CLAUDE.md listed `validate.py` under KEEP+EXTEND as "walk-forward engine". It
+is not one. It is a report generator, and its performance section consisted of
+hardcoded string literals inherited from the crypto agent:
+
+    "oosWinRate": "82.2%"       "expectancy": "+0.61R per trade (OOS)"
+    "profitFactor": 3.79        "tradeCount": 366
+    "maxOosDrawdown": "-8.7%"   "wfoWindows": 8
+
+Not one was computed from data. `make validate` printed them under a "JUDGING
+CRITERIA ALIGNMENT" heading, i.e. presented fabricated results to judges.
+
+Removed rather than adapted. A real engine now exists:
+- `walkforward.py` — rolling anchored IS/OOS windows. OOS strictly follows IS
+  with no overlap, so no bar is ever both trained on and scored. Win rate,
+  expectancy (R), profit factor and max drawdown are computed from the trades
+  actually produced; a strategy that raises contributes zero trades instead of
+  a fabricated result.
+- `scripts/run_walkforward.py` / `make walkforward` — real SPY/QQQ/AAPL/MSFT
+  daily bars in, `validation/walkforward.json` out.
+- `validate.py` reads that file and reports absence honestly when it is missing.
+
+## Correction 2: option chains carry no open interest
+
+risk.yaml gates on open interest >= 100, but Alpaca's `get_option_chain`
+snapshots expose only quote, IV and Greeks. Open interest lives on the trading
+API's `get_option_contracts` records. `alpaca_data.get_option_chain` therefore
+merges both sources and drops any contract whose OI cannot be established;
+unknown OI becomes 0, which fails the liquidity gate. Fail closed, not blind.
+
+## Deviation: RiskGuard is a new module, not an edit to risk_manager.py
+
+The plan said "extend risk_manager.py". Instead `risk_guard.py` is new and
+separate, because the guard is stateless — it judges one candidate against one
+portfolio snapshot — and that is precisely what makes it exhaustively testable
+(34 tests, mutation-checked). `risk_manager.py` retains the running session
+state (P&L, streaks, cooldowns) and supplies the snapshot.
+
+## Not done, and why
+
+`kraken_data.py` / `kraken_cli.py` are still present. `agent.py` and
+`executor.py` depend on them and there is no Alpaca execution layer until
+Phase 3, so deleting them now would break the build and 21 passing integration
+tests for no benefit. Retirement moved to Phase 3, where executor.py is ported.
+
+## Phase 2 module map
+
+| Module | Purpose | Tests |
+|---|---|---|
+| `journal.py` | hash-chained append-only decision log (rule 5) | 12 |
+| `analytics.py` | realized vol, IV, per-share Greeks | 17 |
+| `candidate_builder.py` | deterministic TradeIntent construction (rules 1, 3) | 39 |
+| `risk_guard.py` + `risk.yaml` | ALLOW/DENY/DOWNSIZE gate (rules 2, 6) | 34 |
+| `alpaca_data.py` | bars + chains, 15-min cache, OI merge | 16 |
+| `walkforward.py` | honest OOS validation | 19 |
+
+Suite total after Phase 2: **211 passing**, no warnings.
