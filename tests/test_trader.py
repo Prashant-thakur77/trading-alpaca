@@ -90,6 +90,36 @@ def test_empty_candidate_ids_forces_abstain_even_on_llm_success():
     assert choice == "ABSTAIN"
 
 
+def test_analyst_prose_is_capped_before_it_reaches_the_trader_prompt():
+    # Analyst reasoning is model-written text interpolated into another
+    # model's prompt. Uncapped, one runaway analyst reply inflates every
+    # trader call's cost (and can crowd out the candidate list itself).
+    from committee.trader import MAX_VIEW_REASONING_CHARS
+    captured = {}
+
+    def fake_client(prompt):
+        captured["prompt"] = prompt
+        return _ok_response({"choice": "c1", "reasoning": "ok"})
+
+    long_view = [AnalystView("vol_analyst", 0.6, False, "", "X" * 5000,
+                             "claude-haiku-4-5", "h1")]
+    choose(SNAPSHOT, long_view, ["c1", "c2"], client=fake_client)
+    assert "X" * MAX_VIEW_REASONING_CHARS in captured["prompt"]
+    assert "X" * (MAX_VIEW_REASONING_CHARS + 1) not in captured["prompt"]
+
+
+def test_short_analyst_prose_is_passed_through_unchanged():
+    captured = {}
+
+    def fake_client(prompt):
+        captured["prompt"] = prompt
+        return _ok_response({"choice": "c1", "reasoning": "ok"})
+
+    choose(SNAPSHOT, VIEWS, ["c1", "c2"], client=fake_client)
+    assert "IV rich" in captured["prompt"]
+    assert "assignment risk" in captured["prompt"]
+
+
 def test_non_dict_parsed_payloads_abstain_rather_than_raise():
     # Defence in depth for the `llm.client` contract: even if a non-dict ever
     # reached `parsed` (a hand-built response, a future extraction tier, a

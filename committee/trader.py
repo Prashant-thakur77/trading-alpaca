@@ -37,13 +37,27 @@ Respond with ONLY a JSON object, no prose outside it:
 """
 
 
+# Analyst reasoning is model-written text going into another model's prompt.
+# One runaway reply would otherwise inflate the cost of every trader call and
+# could crowd out the candidate list it is meant to support. Two sentences of
+# reasoning is ~200 chars; 600 is generous without being unbounded.
+MAX_VIEW_REASONING_CHARS = 600
+
+
+def _cap(text: str) -> str:
+    text = str(text)
+    return text if len(text) <= MAX_VIEW_REASONING_CHARS else (
+        text[:MAX_VIEW_REASONING_CHARS] + "[...truncated]")
+
+
 def _render_views(views: list[AnalystView]) -> str:
     lines = []
     for v in views:
         if v.abstained:
-            lines.append(f"- {v.role}: ABSTAINED ({v.abstain_reason})")
+            lines.append(f"- {v.role}: ABSTAINED ({_cap(v.abstain_reason)})")
         else:
-            lines.append(f"- {v.role}: probability={v.probability:.2f} — {v.reasoning}")
+            lines.append(
+                f"- {v.role}: probability={v.probability:.2f} — {_cap(v.reasoning)}")
     return "\n".join(lines) if lines else "(no committee views)"
 
 

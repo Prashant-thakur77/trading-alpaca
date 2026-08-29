@@ -61,6 +61,47 @@ def test_one_file_per_hash(tmp_path):
     assert len(files) == 2
 
 
+def test_truncated_record_reads_as_a_miss_not_an_exception(tmp_path):
+    # An interrupted write (or any corrupt file) must not permanently break
+    # the /judge replay path with a JSONDecodeError. A record that cannot be
+    # read is a cache miss: the caller re-runs the call.
+    cache = PromptCache(tmp_path)
+    (tmp_path / "half.json").write_text('{"prompt": "is IV ri')
+    assert cache.get("half") is None
+
+
+def test_record_that_is_not_an_object_reads_as_a_miss(tmp_path):
+    cache = PromptCache(tmp_path)
+    (tmp_path / "weird.json").write_text('["not", "a", "record"]')
+    assert cache.get("weird") is None
+
+
+def test_put_leaves_no_temporary_file_behind(tmp_path):
+    cache = PromptCache(tmp_path)
+    cache.put("h", {"prompt": "a", "model": "m", "raw_response": "", "parsed": None,
+                     "timestamp": "t", "error": ""})
+    assert [p.name for p in tmp_path.iterdir()] == ["h.json"]
+
+
+def test_a_failed_put_leaves_the_previous_record_intact(tmp_path):
+    # write_text truncates in place: a serialization failure (or a crash) part
+    # way through used to leave a half-written record on disk. Temp-then-
+    # rename means the old record survives a failed write untouched.
+    cache = PromptCache(tmp_path)
+    good = {"prompt": "a", "model": "m", "raw_response": "r", "parsed": None,
+            "timestamp": "t", "error": ""}
+    cache.put("h", good)
+
+    unserializable = {(1, 2): "tuple keys are not JSON"}
+    try:
+        cache.put("h", unserializable)
+    except Exception:
+        pass
+
+    assert cache.get("h") == good
+    assert [p.name for p in tmp_path.iterdir()] == ["h.json"]
+
+
 def test_cache_dir_created_if_missing(tmp_path):
     nested = tmp_path / "nested" / "cache"
     cache = PromptCache(nested)

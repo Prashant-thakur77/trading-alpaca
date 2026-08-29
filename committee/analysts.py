@@ -23,10 +23,14 @@ a missing/non-numeric probability, or a probability outside [0, 1] all
 produce `AnalystView(abstained=True, ...)` with a reason — never a fabricated
 number. This is the "fail soft on the LLM" half of spec 4.4.
 """
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 
 from llm.client import call_claude
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -163,6 +167,39 @@ def bear_adversary(snapshot: str, client=None) -> AnalystView:
     client = client or _default_client()
     response = client(_BEAR_ADVERSARY_PROMPT.format(snapshot=snapshot))
     return _view_from_response("bear_adversary", response)
+
+
+ANALYSTS = (vol_analyst, bear_adversary)
+
+
+def run_analysts(snapshot: str, client=None, analysts=ANALYSTS) -> list[AnalystView]:
+    """Run every analyst on the same snapshot, concurrently, in a stable order.
+
+    The roles are independent by design — neither sees the other's reasoning
+    (that is `committee/debate.py`'s job) — but each is a `claude -p`
+    subprocess call of 6-20s, so running them in sequence cost the sum of
+    their latencies for nothing. Threads, not processes: the work is entirely
+    waiting on a subprocess.
+
+    Results come back in `analysts` order regardless of which finished first,
+    so the committee's input stays deterministic. A worker that raises becomes
+    an abstention, never an exception escaping into the cycle.
+    """
+    with ThreadPoolExecutor(max_workers=max(len(analysts), 1)) as pool:
+        futures = [pool.submit(fn, snapshot, client) for fn in analysts]
+        views = []
+        for fn, future in zip(analysts, futures):
+            try:
+                views.append(future.result())
+            except Exception as e:  # noqa: BLE001 - fail soft on the LLM
+                role = getattr(fn, "__name__", "analyst")
+                logger.error("Analyst %s raised: %s", role, e, exc_info=True)
+                views.append(AnalystView(
+                    role=role, probability=None, abstained=True,
+                    abstain_reason=f"analyst raised {type(e).__name__}: {e}",
+                    reasoning="", model=ANALYST_MODEL, prompt_hash="",
+                ))
+    return views
 
 
 def aggregate(views: list[AnalystView]) -> float | None:

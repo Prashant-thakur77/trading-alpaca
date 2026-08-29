@@ -11,8 +11,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import time
+
 from llm.client import LLMResponse
-from committee.analysts import AnalystView, vol_analyst, bear_adversary, aggregate
+from committee.analysts import (
+    AnalystView, vol_analyst, bear_adversary, aggregate, run_analysts,
+)
 
 SNAPSHOT = "UNDERLYING: SPY\nSPOT: 500.00\nREALIZED_VOL: 18.00%\nCANDIDATES (1 of 1):\nc1 | bull_put_spread | DTE=30\n"
 
@@ -127,6 +131,46 @@ def test_non_dict_parsed_payloads_abstain_rather_than_raise():
             view = analyst(SNAPSHOT, client=fake_client)
             assert view.abstained is True, (analyst.__name__, payload)
             assert view.abstain_reason
+
+
+# ---- run_analysts: independent roles, so they run concurrently ----
+
+def test_run_analysts_returns_both_views_in_a_stable_order():
+    def fake_client(prompt):
+        role = "vol" if "volatility analyst" in prompt else "bear"
+        return _ok_response({"probability": 0.6 if role == "vol" else 0.3,
+                             "reasoning": role})
+
+    views = run_analysts(SNAPSHOT, client=fake_client)
+    assert [v.role for v in views] == ["vol_analyst", "bear_adversary"]
+    assert views[0].probability == 0.6
+    assert views[1].probability == 0.3
+
+
+def test_run_analysts_overlaps_the_two_calls():
+    # These are subprocess calls to the claude CLI: run sequentially they cost
+    # the sum of their latencies for no reason — neither analyst sees the
+    # other's output.
+    def slow_client(prompt):
+        time.sleep(0.4)
+        return _ok_response({"probability": 0.5, "reasoning": "ok"})
+
+    start = time.monotonic()
+    views = run_analysts(SNAPSHOT, client=slow_client)
+    elapsed = time.monotonic() - start
+    assert len(views) == 2
+    assert elapsed < 0.7, f"analysts appear to have run sequentially ({elapsed:.2f}s)"
+
+
+def test_run_analysts_turns_a_raising_client_into_an_abstention():
+    # A worker thread that raises must not take the cycle down with it.
+    def exploding_client(prompt):
+        raise RuntimeError("thread boom")
+
+    views = run_analysts(SNAPSHOT, client=exploding_client)
+    assert len(views) == 2
+    assert all(v.abstained for v in views)
+    assert all("boom" in v.abstain_reason for v in views)
 
 
 def test_aggregate_excludes_abstaining_analysts_from_mean():
