@@ -27,6 +27,7 @@ def _flat():
 class FakeCLI:
     def __init__(self, order=None, statuses=None, raises=False):
         self.posted, self.raises = [], raises
+        self.calls = 0
         self._order = order or {"id": "o-1", "status": "accepted"}
         self._statuses = list(statuses or ["filled"])
 
@@ -37,6 +38,7 @@ class FakeCLI:
         return self._order
 
     def get_order(self, order_id):
+        self.calls += 1
         status = self._statuses.pop(0) if self._statuses else "filled"
         return {"id": order_id, "status": status, "filled_avg_price": "1.00"}
 
@@ -109,3 +111,46 @@ def test_denied_orders_are_journalled_too(executor, tmp_path):
     ex = executor(cli)
     ex.submit(_intent(), PortfolioState(3, 0.0, 0.0, 0.0, 0, {}))
     assert any(e["type"] == "verdict" for e in ex.journal.entries())
+
+
+def test_journal_failure_does_not_break_execution(executor, tmp_path):
+    """Once an order exists at the broker, a journal write failure must not
+    escape submit() — a caller seeing an exception could retry and double up."""
+    cli = FakeCLI()
+    ex = executor(cli)
+    class ExplodingJournal:
+        path = tmp_path / "x.jsonl"
+        def append(self, *a, **k):
+            raise OSError("disk full")
+        def entries(self):
+            return []
+    ex.journal = ExplodingJournal()
+    result = ex.submit(_intent(), _flat())
+    assert result.status == "filled"
+
+
+def test_journal_failure_on_denial_still_returns_a_verdict(executor, tmp_path):
+    cli = FakeCLI()
+    ex = executor(cli)
+    class ExplodingJournal:
+        path = tmp_path / "x.jsonl"
+        def append(self, *a, **k):
+            raise OSError("disk full")
+        def entries(self):
+            return []
+    ex.journal = ExplodingJournal()
+    result = ex.submit(_intent(), PortfolioState(3, 0.0, 0.0, 0.0, 0, {}))
+    assert result.status == "denied"
+    assert cli.posted == []
+
+
+def test_poll_rechecks_until_filled(executor):
+    """The loop must actually re-poll: first two checks pending, third fills."""
+    cli = FakeCLI(statuses=["new", "accepted", "filled"])
+    ex = executor(cli)
+    ticks = iter([0, 1, 2, 3, 4, 5, 6, 7, 8])
+    ex._clock = lambda: next(ticks)
+    ex._sleep = lambda s: None
+    result = ex.submit(_intent(), _flat(), poll_seconds=30)
+    assert result.status == "filled"
+    assert cli.calls >= 3

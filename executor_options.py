@@ -34,7 +34,7 @@ class OptionsExecutor:
 
     def submit(self, intent, state, poll_seconds: int = 30) -> ExecutionResult:
         verdict = self.guard.evaluate(intent, state)
-        self.journal.append("verdict", {
+        self._record("verdict", {
             "underlying": getattr(intent, "underlying", "?"),
             "structure": getattr(intent, "structure", "?"),
             "decision": verdict.decision.value,
@@ -48,28 +48,37 @@ class OptionsExecutor:
 
         contracts = verdict.approved_contracts
         payload = build_mleg_payload(intent, contracts)
-        self.journal.append("proposal", {"payload": payload})
+        self._record("proposal", {"payload": payload})
 
         try:
             order = self.cli.post_order(payload)
         except Exception as e:
             logger.error("Broker rejected the order: %s", e)
-            self.journal.append("rejected", {"error": str(e)})
+            self._record("rejected", {"error": str(e)})
             return ExecutionResult("rejected", reason=str(e), contracts=contracts)
 
         order_id = str(order.get("id", ""))
         status = self._poll(order_id, poll_seconds)
 
         if status in TERMINAL_FILLED:
-            self.journal.append("fill", {"order_id": order_id, "contracts": contracts})
+            self._record("fill", {"order_id": order_id, "contracts": contracts})
             return ExecutionResult("filled", order_id, True, "filled", contracts)
 
         if status in TERMINAL_DEAD:
-            self.journal.append("rejected", {"order_id": order_id, "status": status})
+            self._record("rejected", {"order_id": order_id, "status": status})
             return ExecutionResult("rejected", order_id, reason=status, contracts=contracts)
 
-        self.journal.append("pending", {"order_id": order_id, "status": status})
+        self._record("pending", {"order_id": order_id, "status": status})
         return ExecutionResult("pending", order_id, reason=status, contracts=contracts)
+
+    def _record(self, entry_type: str, payload: dict) -> None:
+        """Journal an outcome. A journal failure must never escape submit():
+        once an order exists at the broker, an exception here would look to the
+        caller like no order was placed, inviting a duplicate submission."""
+        try:
+            self.journal.append(entry_type, payload)
+        except Exception as e:
+            logger.error("Journal write failed for %s: %s", entry_type, e, exc_info=True)
 
     def _poll(self, order_id: str, poll_seconds: int) -> str:
         """Poll until terminal or the window elapses. Returns the last status."""
