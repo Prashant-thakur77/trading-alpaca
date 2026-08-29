@@ -90,6 +90,21 @@ def test_empty_candidate_ids_forces_abstain_even_on_llm_success():
     assert choice == "ABSTAIN"
 
 
+def test_non_dict_parsed_payloads_abstain_rather_than_raise():
+    # Defence in depth for the `llm.client` contract: even if a non-dict ever
+    # reached `parsed` (a hand-built response, a future extraction tier, a
+    # replayed cache record), the trader must abstain, never AttributeError
+    # mid-cycle. "ABSTAIN" as a bare JSON string is the natural reply to this
+    # module's own prompt, which offers "the literal string ABSTAIN".
+    for payload in ("ABSTAIN", [{"choice": "c1"}], 0.62, True, ["c1", "c2"]):
+        def fake_client(prompt, payload=payload):
+            return _ok_response(payload)
+
+        choice, reasoning = choose(SNAPSHOT, VIEWS, ["c1", "c2"], client=fake_client)
+        assert choice == "ABSTAIN", payload
+        assert reasoning
+
+
 def test_prompt_includes_candidate_ids_and_snapshot():
     captured = {}
 

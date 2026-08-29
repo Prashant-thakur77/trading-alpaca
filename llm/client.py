@@ -17,6 +17,7 @@ without touching a network or a real binary.
 """
 import hashlib
 import json
+import math
 import re
 import subprocess
 from dataclasses import dataclass
@@ -76,34 +77,63 @@ def _extract_first_balanced_braces(text: str) -> str | None:
     return None
 
 
+def _loads_dict(raw: str) -> dict | None:
+    """`json.loads` that yields a dict or nothing at all.
+
+    Valid JSON that is not an object — a bare `"ABSTAIN"`, `0.62`, `true`,
+    `null`, a top-level list — is NOT an answer this codebase can consume:
+    every caller does `parsed.get(...)` or `"key" in parsed`. Returning such
+    a value would turn a plausible model reply into an AttributeError /
+    TypeError that crashes a whole scan cycle instead of abstaining.
+    """
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _extract_json(text: str) -> dict | None:
-    """Three-tier JSON extraction from an LLM's free-form response text.
+    """Three-tier JSON **object** extraction from an LLM's response text.
 
     Tried in order: (a) a ```json fenced block — Haiku's common style,
     (b) the whole string parsed as-is — Sonnet's common style,
     (c) the first balanced-brace region — for prose that wraps a JSON object
-    in a sentence. Returns None, never raises, if nothing parses.
+    in a sentence. A tier that parses to something other than a dict does not
+    win: it falls through to the next tier (so `[{"choice": "c1"}]` is still
+    recovered by tier (c)). Returns None, never raises, if no tier yields a
+    dict — the caller then reports ok=False and its own caller abstains.
     """
+    if not isinstance(text, str):
+        return None
+
     fence = re.search(r"```json\s*(.*?)```", text, re.DOTALL)
     if fence:
-        try:
-            return json.loads(fence.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+        parsed = _loads_dict(fence.group(1).strip())
+        if parsed is not None:
+            return parsed
 
-    try:
-        return json.loads(text.strip())
-    except json.JSONDecodeError:
-        pass
+    parsed = _loads_dict(text.strip())
+    if parsed is not None:
+        return parsed
 
     region = _extract_first_balanced_braces(text)
     if region is not None:
-        try:
-            return json.loads(region)
-        except json.JSONDecodeError:
-            pass
+        parsed = _loads_dict(region)
+        if parsed is not None:
+            return parsed
 
     return None
+
+
+def _float_or_zero(value) -> float:
+    """Cost is telemetry, not an answer. A CLI that reports `"abc"` must not
+    turn a good response into a raised ValueError."""
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return out if math.isfinite(out) else 0.0
 
 
 def call_claude(
@@ -114,9 +144,23 @@ def call_claude(
 ) -> LLMResponse:
     """Invoke the claude CLI with cost-optimised flags and parse its output.
 
-    Never raises — see module docstring.
+    Never raises — see module docstring. The whole body is wrapped: even a
+    bug in this function, or a runner that returns something that is not a
+    CompletedProcess, becomes ok=False rather than an exception escaping into
+    a mid-cycle scan.
     """
-    prompt_hash = _prompt_hash(model, prompt)
+    prompt_hash = _prompt_hash(str(model), str(prompt))
+    try:
+        return _call_claude_inner(prompt, model, timeout, runner, prompt_hash)
+    except Exception as e:  # noqa: BLE001 - totality is the contract
+        return LLMResponse(
+            ok=False, text="", parsed=None, model=model, prompt_hash=prompt_hash,
+            error=f"claude CLI wrapper error: {type(e).__name__}: {e}",
+            cost_usd=0.0,
+        )
+
+
+def _call_claude_inner(prompt, model, timeout, runner, prompt_hash) -> LLMResponse:
     cmd = [
         "claude", "-p", prompt,
         "--model", model,
@@ -139,25 +183,47 @@ def call_claude(
             error=f"claude CLI subprocess error: {e}", cost_usd=0.0,
         )
 
-    if proc.returncode != 0:
+    returncode = getattr(proc, "returncode", None)
+    if returncode != 0:
         return LLMResponse(
-            ok=False, text=proc.stdout or "", parsed=None, model=model,
-            prompt_hash=prompt_hash,
-            error=f"claude CLI exit {proc.returncode}: {(proc.stderr or '').strip()}",
+            ok=False, text=str(getattr(proc, "stdout", "") or ""), parsed=None,
+            model=model, prompt_hash=prompt_hash,
+            error=f"claude CLI exit {returncode}: "
+                  f"{str(getattr(proc, 'stderr', '') or '').strip()}",
             cost_usd=0.0,
         )
 
-    stdout = proc.stdout or ""
+    stdout = getattr(proc, "stdout", "") or ""
     try:
         envelope = json.loads(stdout)
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
         return LLMResponse(
-            ok=False, text=stdout, parsed=None, model=model, prompt_hash=prompt_hash,
+            ok=False, text=str(stdout), parsed=None, model=model,
+            prompt_hash=prompt_hash,
             error=f"invalid claude CLI envelope JSON: {e}", cost_usd=0.0,
         )
 
+    # The envelope itself is model-adjacent output: `[]`, `5`, `"hello"` and
+    # `null` are all valid JSON that `.get` would explode on.
+    if not isinstance(envelope, dict):
+        return LLMResponse(
+            ok=False, text=str(stdout), parsed=None, model=model,
+            prompt_hash=prompt_hash,
+            error=f"claude CLI envelope is {type(envelope).__name__}, expected object",
+            cost_usd=0.0,
+        )
+
+    cost_usd = _float_or_zero(
+        envelope.get("total_cost_usd") or envelope.get("cost_usd") or 0.0)
+
     result_text = envelope.get("result", "")
-    cost_usd = float(envelope.get("total_cost_usd") or envelope.get("cost_usd") or 0.0)
+    if not isinstance(result_text, str):
+        return LLMResponse(
+            ok=False, text="", parsed=None, model=model, prompt_hash=prompt_hash,
+            error=f"claude CLI envelope 'result' is {type(result_text).__name__}, "
+                  f"expected string",
+            cost_usd=cost_usd,
+        )
 
     parsed = _extract_json(result_text)
     if parsed is None:

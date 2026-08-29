@@ -118,6 +118,145 @@ def test_invalid_cli_envelope_json_returns_ok_false():
     assert resp.parsed is None
 
 
+# ---- CRITICAL 1: valid JSON that is not an object must never reach a caller ----
+#
+# `parsed` is typed `dict | None`, and every call site does `parsed.get(...)`
+# or `"key" in parsed`. A bare `"ABSTAIN"`, a top-level list, a number or a
+# bool are all valid JSON and all natural model replies (the trader prompt
+# literally offers "the literal string ABSTAIN"), so `_extract_json` must
+# never hand back a non-dict.
+
+def _resp_for(result_text):
+    def runner(cmd, **kwargs):
+        return _completed(stdout=_envelope(result_text))
+    return call_claude("p", runner=runner)
+
+
+def test_bare_json_string_reply_is_not_a_dict_and_abstains():
+    resp = _resp_for('"ABSTAIN"')
+    assert resp.parsed is None
+    assert resp.ok is False
+    assert resp.text == '"ABSTAIN"'          # raw text preserved for replay
+    assert resp.error != ""
+
+
+def test_json_float_reply_is_not_a_dict_and_abstains():
+    resp = _resp_for("0.62")
+    assert resp.parsed is None
+    assert resp.ok is False
+
+
+def test_json_bool_reply_is_not_a_dict_and_abstains():
+    resp = _resp_for("true")
+    assert resp.parsed is None
+    assert resp.ok is False
+
+
+def test_json_list_of_scalars_reply_is_not_a_dict_and_abstains():
+    resp = _resp_for('["c1", "c2"]')
+    assert resp.parsed is None
+    assert resp.ok is False
+
+
+def test_fenced_json_list_of_scalars_abstains():
+    resp = _resp_for('```json\n["c1", "c2"]\n```')
+    assert resp.parsed is None
+    assert resp.ok is False
+
+
+def test_top_level_list_wrapping_one_object_falls_through_to_brace_tier():
+    # Tier 2 yields a list (not a dict) so it must fall through to the
+    # balanced-brace tier, which recovers the object the model meant. The
+    # contract under test is only that `parsed` is a dict or None — never a
+    # list that a caller's .get() would explode on.
+    resp = _resp_for('[{"choice": "c1", "reasoning": "ok"}]')
+    assert resp.parsed is None or isinstance(resp.parsed, dict)
+    assert resp.parsed == {"choice": "c1", "reasoning": "ok"}
+
+
+def test_fenced_list_wrapping_one_object_falls_through_to_brace_tier():
+    resp = _resp_for('```json\n[{"choice": "c1", "reasoning": "ok"}]\n```')
+    assert resp.parsed is None or isinstance(resp.parsed, dict)
+
+
+def test_parsed_is_always_dict_or_none_across_every_measured_reply():
+    for text in ('"ABSTAIN"', "0.62", "true", "null", "[]", '["c1"]',
+                 '```json\n[1, 2]\n```', '{"choice": "c1"}'):
+        resp = _resp_for(text)
+        assert resp.parsed is None or isinstance(resp.parsed, dict), text
+        if resp.ok:
+            assert isinstance(resp.parsed, dict), text
+
+
+# ---- CRITICAL 2: call_claude is total — the envelope can be anything ----
+
+def test_non_dict_envelope_list_returns_ok_false_never_raises():
+    def runner(cmd, **kwargs):
+        return _completed(stdout="[]")
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is False
+    assert resp.parsed is None
+    assert resp.error != ""
+
+
+def test_non_dict_envelope_number_returns_ok_false_never_raises():
+    def runner(cmd, **kwargs):
+        return _completed(stdout="5")
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is False
+
+
+def test_non_dict_envelope_string_returns_ok_false_never_raises():
+    def runner(cmd, **kwargs):
+        return _completed(stdout='"hello"')
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is False
+
+
+def test_non_dict_envelope_null_returns_ok_false_never_raises():
+    def runner(cmd, **kwargs):
+        return _completed(stdout="null")
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is False
+
+
+def test_non_numeric_cost_is_coerced_not_raised():
+    def runner(cmd, **kwargs):
+        return _completed(stdout=json.dumps(
+            {"result": '{"probability": 0.5}', "total_cost_usd": "abc"}))
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is True                 # a bad cost field is not a bad answer
+    assert resp.cost_usd == 0.0
+    assert resp.parsed == {"probability": 0.5}
+
+
+def test_non_string_result_field_returns_ok_false_never_raises():
+    def runner(cmd, **kwargs):
+        return _completed(stdout=json.dumps(
+            {"result": {"probability": 0.5}, "total_cost_usd": 0.01}))
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is False
+    assert resp.parsed is None
+
+
+def test_runner_returning_a_junk_object_returns_ok_false_never_raises():
+    class Junk:
+        pass
+
+    def runner(cmd, **kwargs):
+        return Junk()          # no .returncode, no .stdout
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is False
+    assert resp.error != ""
+
+
 def test_tools_flag_disabled_and_model_passed_through():
     captured = {}
 

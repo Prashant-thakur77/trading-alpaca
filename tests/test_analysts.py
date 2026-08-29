@@ -94,6 +94,41 @@ def test_non_numeric_probability_abstains():
     assert view.abstained is True
 
 
+def test_abstained_view_carries_none_probability_not_zero():
+    # 0.0 is maximum bearishness to anything reading `.probability` alone;
+    # an abstention is the absence of a view, so it must be None.
+    clients = [
+        lambda p: _fail_response(),
+        lambda p: _ok_response({"abstain": True, "reason": "no IV data"}),
+        lambda p: _ok_response({"probability": "high"}),
+        lambda p: _ok_response({"probability": 1.4}),
+        lambda p: _ok_response("ABSTAIN"),
+    ]
+    for client in clients:
+        view = vol_analyst(SNAPSHOT, client=client)
+        assert view.abstained is True
+        assert view.probability is None
+
+
+def test_active_view_probability_is_never_none():
+    view = vol_analyst(SNAPSHOT, client=lambda p: _ok_response({"probability": 0.0}))
+    assert view.abstained is False
+    assert view.probability == 0.0     # a genuine 0.0 view survives as a number
+
+
+def test_non_dict_parsed_payloads_abstain_rather_than_raise():
+    # Defence in depth for the `llm.client` contract: a non-dict `parsed`
+    # must abstain, never AttributeError/TypeError mid-cycle.
+    for payload in ("ABSTAIN", [{"probability": 0.6}], 0.62, True, ["a", "b"]):
+        def fake_client(prompt, payload=payload):
+            return _ok_response(payload)
+
+        for analyst in (vol_analyst, bear_adversary):
+            view = analyst(SNAPSHOT, client=fake_client)
+            assert view.abstained is True, (analyst.__name__, payload)
+            assert view.abstain_reason
+
+
 def test_aggregate_excludes_abstaining_analysts_from_mean():
     views = [
         AnalystView("vol_analyst", 0.8, False, "", "", "m", "h1"),

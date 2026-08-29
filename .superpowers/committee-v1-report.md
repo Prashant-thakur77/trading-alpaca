@@ -175,3 +175,39 @@ Commits (5, one per module/pairing):
   `calibration.py`, executor/journal wiring, and cache integration into the
   committee call sites — all later-phase pieces per PLAN.md Phase 3/4 and
   the architecture diagram, not part of the six modules requested here.
+
+---
+
+## Controller live acceptance test (2026-08-29, real `claude -p` calls)
+
+Real chain, real models, no fakes:
+
+    spot 769.35  realized vol 0.095  candidates 632
+    snapshot: 1715 chars       determinism on real data: OK
+    vol_analyst      ABSTAIN ("Implied volatility data is not provided")
+    bear_adversary   p=0.57
+    analysts took 40s (sequential)
+    aggregate probability: 0.57      <- abstainer excluded from BOTH num and denom
+    TRADER PICK: ABSTAIN  (11s)   valid id? True
+
+WORKS: end-to-end pipeline, snapshot determinism on real data, the abstain
+contract, id validation, and genuinely coherent trader reasoning.
+
+DEFECT FOUND (live-only — no unit test could catch it, they all use fakes):
+  **render_snapshot omits implied volatility.** The vol analyst exists to judge
+  implied-vs-realized vol and therefore abstains EVERY time, permanently
+  leaving the committee half-blind and structurally biased toward ABSTAIN.
+  A desk that always abstains is not a trading agent.
+
+  Fix: compute per-candidate IV in render_snapshot via analytics.implied_vol
+  from each leg's mid + spot + dte (all already available), and surface the
+  IV-vs-realized spread, which is the actual decision variable for premium
+  selling. Longer term, plumb Alpaca's own IV through OptionQuote per spec
+  Addendum A.2 and reconcile the two sources.
+
+PERFORMANCE: 40s for two sequential analysts + 11s trader = ~51s/decision.
+  Fine for a 30-minute cycle, but the analysts are independent and must run in
+  parallel — that alone halves it.
+  Measured Sonnet-5: ~$0.065 and 24s, vs my earlier bench of $0.033/6s (2x cost,
+  4x latency). Haiku matched. Budget still holds (~$0.10-0.15/decision) but the
+  latency figure in the spec is optimistic.

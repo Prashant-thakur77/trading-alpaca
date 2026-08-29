@@ -157,6 +157,18 @@ def test_blind_review_malformed_response_vetoes_fail_closed():
     assert ok is False
 
 
+def test_blind_review_non_dict_parsed_payloads_veto_rather_than_raise():
+    # Defence in depth for the `llm.client` contract: a non-dict `parsed`
+    # must fail closed (veto), never TypeError mid-cycle.
+    for payload in ("ABSTAIN", [{"agree": True}], 0.62, True, ["yes"]):
+        def fake_client(prompt, payload=payload):
+            return _ok_response(payload)
+
+        ok, reason = blind_review(_intent(), SPOT, 0.18, client=fake_client)
+        assert ok is False, payload
+        assert reason
+
+
 def test_blind_review_prompt_never_includes_committee_reasoning():
     # blind_review must be starved of the committee's own reasoning — it only
     # sees the candidate and price context, never analyst/trader reasoning

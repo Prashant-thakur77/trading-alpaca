@@ -74,7 +74,15 @@ def choose(
     if not response.ok:
         return "ABSTAIN", f"LLM failure: {response.error}"
 
-    parsed = response.parsed or {}
+    # `llm.client` guarantees a dict or None, but this is the safety-critical
+    # boundary: a non-dict here must abstain, not raise AttributeError. A bare
+    # "ABSTAIN" string is the reply this module's own prompt invites.
+    if not isinstance(response.parsed, dict):
+        return "ABSTAIN", (
+            f"model output was not a JSON object: {type(response.parsed).__name__}"
+        )
+
+    parsed = response.parsed
     choice = parsed.get("choice")
     reasoning = str(parsed.get("reasoning", ""))
 

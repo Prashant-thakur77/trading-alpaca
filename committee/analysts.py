@@ -33,7 +33,13 @@ from llm.client import call_claude
 class AnalystView:
     """One analyst's opinion on the current cycle's candidate set."""
     role: str
-    probability: float       # P(the favoured trade is profitable), 0..1
+    # P(the favoured trade is profitable), 0..1 — or **None** when this view
+    # abstained. It is deliberately NOT 0.0: a consumer reading `.probability`
+    # alone would read a 0.0 as maximum bearishness, i.e. an abstention would
+    # masquerade as the strongest possible opinion. `None` cannot be misread,
+    # and any arithmetic on it fails loudly. INVARIANT: abstained is True
+    # if and only if probability is None.
+    probability: float | None
     abstained: bool
     abstain_reason: str
     reasoning: str
@@ -95,16 +101,26 @@ def _default_client():
 def _view_from_response(role: str, response) -> AnalystView:
     if not response.ok:
         return AnalystView(
-            role=role, probability=0.0, abstained=True,
+            role=role, probability=None, abstained=True,
             abstain_reason=f"LLM failure: {response.error}", reasoning="",
             model=response.model, prompt_hash=response.prompt_hash,
         )
 
-    parsed = response.parsed or {}
+    # `llm.client` guarantees a dict or None, but this is the safety-critical
+    # boundary: a non-dict here (a replayed cache record, a hand-built
+    # response) must abstain, not raise AttributeError mid-cycle.
+    if not isinstance(response.parsed, dict):
+        return AnalystView(
+            role=role, probability=None, abstained=True,
+            abstain_reason=f"model output was not a JSON object: "
+                           f"{type(response.parsed).__name__}",
+            reasoning="", model=response.model, prompt_hash=response.prompt_hash,
+        )
+    parsed = response.parsed
 
     if parsed.get("abstain"):
         return AnalystView(
-            role=role, probability=0.0, abstained=True,
+            role=role, probability=None, abstained=True,
             abstain_reason=str(parsed.get("reason", "model abstained")),
             reasoning="", model=response.model, prompt_hash=response.prompt_hash,
         )
@@ -114,14 +130,14 @@ def _view_from_response(role: str, response) -> AnalystView:
         probability = float(raw_p)
     except (TypeError, ValueError):
         return AnalystView(
-            role=role, probability=0.0, abstained=True,
+            role=role, probability=None, abstained=True,
             abstain_reason=f"malformed probability in model output: {raw_p!r}",
             reasoning="", model=response.model, prompt_hash=response.prompt_hash,
         )
 
     if not (0.0 <= probability <= 1.0):
         return AnalystView(
-            role=role, probability=0.0, abstained=True,
+            role=role, probability=None, abstained=True,
             abstain_reason=f"probability out of range [0,1]: {probability}",
             reasoning="", model=response.model, prompt_hash=response.prompt_hash,
         )

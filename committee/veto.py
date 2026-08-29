@@ -128,7 +128,15 @@ def blind_review(
     if not response.ok:
         return False, f"blind review LLM failure — failing closed: {response.error}"
 
-    parsed = response.parsed or {}
+    # A non-dict `parsed` is not a pass: `"agree" not in "ABSTAIN"` is a
+    # substring test that would quietly succeed, and a float would raise.
+    if not isinstance(response.parsed, dict):
+        return False, (
+            f"blind review output was not a JSON object "
+            f"({type(response.parsed).__name__}) — failing closed"
+        )
+
+    parsed = response.parsed
     if "agree" not in parsed or not isinstance(parsed["agree"], bool):
         return False, "blind review response malformed (missing/invalid 'agree') — failing closed"
 
