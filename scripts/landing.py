@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-The landing page — generated, never hand-edited.
+The landing page. Generated, never hand-edited.
 
 Structure and motion vocabulary studied from lamalama.com (sticky nav, motion
 hero, expandable cards with +/- toggles, marquee, social-proof block, action
@@ -29,7 +29,7 @@ NAV = [("The inversion", "#inversion"), ("Pipeline", "#pipeline"),
 PIPELINE = [
     ("Build", "Deterministic code enumerates every candidate",
      "Python reads the live option chain and constructs every legal defined-risk "
-     "structure it supports — bull put spreads, bear call spreads, iron condors, long "
+     "structure it supports: bull put spreads, bear call spreads, iron condors, long "
      "straddles. Each one is fully specified before any model is called: strikes, legs, "
      "quantity, limit price, max loss, breakevens. Candidates that fail the liquidity "
      "gate, or that the guard would certainly refuse, are dropped before the model ever "
@@ -39,7 +39,7 @@ PIPELINE = [
      "A volatility analyst weighs implied against realized vol. A dedicated adversary "
      "argues against the trade and looks for the failure mode. Each returns a probability "
      "and its reasoning. An analyst that abstains is removed from both the numerator and "
-     "the denominator of the aggregate — no opinion never counts as neutral. In a recorded "
+     "the denominator of the aggregate, so no opinion ever counts as neutral. In a recorded "
      "cycle the adversary's objection about a thin hedge moved the trader off the "
      "highest-credit candidate onto a safer one.",
      [("2", "analysts"), ("~29s", "run concurrently"), ("0.2–1.0", "voting weight range")]),
@@ -54,7 +54,7 @@ PIPELINE = [
      "Every order is judged against risk.yaml: max loss per position, concurrent positions, "
      "net delta and vega, daily loss, one new trade per underlying per day. It returns allow, "
      "deny, or a smaller size than requested. Any error, any missing data, any exception "
-     "inside the guard is a refusal — verified by mutation testing rather than asserted.",
+     "inside the guard is a refusal, verified by mutation testing rather than asserted.",
      [("$1,000", "max loss / position"), ("|30|", "net delta cap"), ("2%", "daily loss halt")]),
 ]
 
@@ -120,7 +120,7 @@ a{color:inherit;text-decoration:none}
 .st{font-weight:800;text-transform:uppercase;letter-spacing:-.03em;
  line-height:.88;text-wrap:balance}
 
-/* floating pill nav, centred — as observed */
+/* floating pill nav, centred, as observed */
 nav{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:60;
  background:var(--ground-2);border-radius:var(--r);display:flex;align-items:center;
  min-width:440px;transition:transform .45s var(--ease),opacity .45s var(--ease)}
@@ -134,7 +134,7 @@ nav .burger{width:52px;height:52px;display:grid;place-items:center;
 nav .burger span{display:block;width:17px;height:1px;background:var(--ink);
  margin:3px 0;transition:transform .3s var(--ease)}
 
-/* persistent card stack, top right — as observed */
+/* persistent card stack, top right, as observed */
 .stack{position:fixed;top:18px;right:18px;z-index:60;width:180px;
  display:flex;flex-direction:column;gap:6px}
 .stack a,.stack div{background:var(--ground-2);border-radius:var(--r);
@@ -146,7 +146,7 @@ nav .burger span{display:block;width:17px;height:1px;background:var(--ink);
 .stack .v.ok{color:var(--lime)}
 @media(max-width:1100px){.stack{display:none}}
 
-/* persistent status bar — as observed */
+/* persistent status bar, as observed */
 .status{position:fixed;left:0;right:0;bottom:0;z-index:60;
  background:var(--ground);border-top:1px solid var(--hair);
  display:flex;align-items:center;gap:26px;padding:16px 40px;
@@ -158,7 +158,7 @@ nav .burger span{display:block;width:17px;height:1px;background:var(--ink);
 .status b{color:var(--ink);font-weight:400}
 @media(max-width:900px){.status .hide-s{display:none}}
 
-/* buttons — 4px radius, outlined, arrow */
+/* buttons: 4px radius, outlined, arrow */
 .btn{display:inline-flex;align-items:center;gap:14px;font-family:var(--mono);
  font-size:11px;letter-spacing:.14em;text-transform:uppercase;
  padding:16px 20px;border:1px solid var(--hair2);border-radius:var(--r);
@@ -322,7 +322,7 @@ def build() -> str:
         ("632", "defined-risk structures built by code"),
         ("12", "shown to the committee"),
         ("700", "tests, no network in any of them"),
-        ("1", "it may choose — or none"),
+        ("1", "it may choose, or none"),
     ])
     cards = "".join(f"""<div class="card rv" data-open="{'1' if i == 1 else '0'}">
       <button aria-expanded="{'true' if i == 1 else 'false'}">
@@ -342,7 +342,7 @@ def build() -> str:
          "<code>python3 scripts/replay.py --all --verify</code> reproduces every recorded "
          "verdict offline, with the environment stripped."),
         ("Verify the chain",
-         "<code>make verify-journal</code> — every decision is hash-chained. Empty, intact "
+         "<code>make verify-journal</code> verifies the chain. Empty, intact "
          "and tampered are three distinct outcomes."),
         ("Watch it decide",
          "<code>make session</code> runs the whole pipeline against the live chain and "
@@ -380,7 +380,7 @@ def build() -> str:
     <div class="cta"><a class="btn fill" data-magnetic href="/judge">Replay a real decision ↗</a>
       <a class="btn" data-magnetic href="{REPO}">Read the code ↗</a></div>
   </div><div><p class="sub">Deterministic Python builds every candidate before a model sees
-  anything — every strike, leg and limit price fully specified. The committee may pick
+  anything. Every strike, leg and limit price is fully specified. The committee may pick
   <b>one by id, or refuse</b>. It cannot invent a strike, because no code path allows it.</p></div></div></div>
 </section>
 
@@ -391,7 +391,7 @@ def build() -> str:
     <h2 class="st rv" style="margin-top:22px">Most agents ask a model what to buy.
       This one never lets it answer.</h2></div>
   <p class="note rv">Asking a model “what should I trade?” is quick to build and impossible
-    to trust — it can hallucinate a strike, size a position wrongly, or be confidently
+    to trust. It can hallucinate a strike, size a position wrongly, or be confidently
     wrong with no record of why. So the model is handed a numbered menu it did not write,
     and may return <b>one id, or the word ABSTAIN</b>. A hallucinated id is treated as an
     abstention. Every decision, including each refusal, is appended to a hash-chained
@@ -414,8 +414,8 @@ def build() -> str:
   <div class="desk rv">{desk}</div>
   <p class="note rv" style="max-width:74ch;margin-top:28px">Quotes are verbatim from a
     recorded cycle, not written for this page. In that cycle the adversary's objection
-    about a thin hedge moved the trader off the highest-credit candidate — the reason a
-    committee is not a rubber stamp.</p>
+    about a thin hedge moved the trader off the highest-credit candidate, which is the
+    reason a committee is not a rubber stamp.</p>
 </div></section>
 
 <section class="pad" id="evidence"><div class="wrap">
@@ -426,9 +426,9 @@ def build() -> str:
     <th>win rate</th><th>expectancy</th><th>profit factor</th><th>max drawdown</th>
     </tr></thead><tbody>{evidence_rows()}</tbody></table></div>
   <div class="caveat rv"><b>Read this before the numbers.</b> Thirty trades across four
-    symbols proves nothing statistically, and one symbol loses money — which is the point.
+    symbols proves nothing statistically, and one symbol loses money. That is the point.
     An earlier version of this harness scaled its risk threshold to the wrong horizon and
-    produced a 97% win rate by construction; it was caught and corrected before publication.
+    produced a 97% win rate by construction. It was caught and corrected before publication.
     The repository this was converted from shipped a hardcoded “82.2% out-of-sample win
     rate” computed from nothing. That was deleted, not adapted.</div>
   <div class="checks rv">{checks}</div>
@@ -449,7 +449,7 @@ def build() -> str:
   <div class="cols">
     <ul><li>Paper trading only. Never live capital, by construction.</li>
       <li>Small sample. No statistical significance is implied.</li>
-      <li>The fail-closed scenario is constructed — no live cycle has hit a data outage.</li></ul>
+      <li>The fail-closed scenario is constructed. No live cycle has hit a data outage.</li></ul>
     <ul><li>Analyst text is real recorded model output, not written for this site.</li>
       <li>Guard verdicts are recomputed, not copied.</li>
       <li>Known gaps are tracked in the repository, not hidden.</li></ul>

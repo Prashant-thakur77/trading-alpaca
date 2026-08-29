@@ -3,13 +3,13 @@
 Generate the credential-free judge page from the committed scenario fixtures.
 
 The page is generated, never hand-edited, so it can never drift from the
-fixtures `scripts/replay.py --verify` checks. Regenerate with:
+fixtures that `scripts/replay.py --verify` checks. Regenerate with:
 
     python3 scripts/build_judge_page.py        # writes judge/index.html
 
-Design language is inherited from the author's existing system (monochrome
-brutalism: true black ground, white ink, hairline borders, zero radius,
-proof-green reserved for verified states).
+Design tokens are shared with the landing page via fx.py, measured from the
+reference site's live DOM: cream ink on a warm near-black ground, 4px radius,
+coral and lime used sparingly, proof-green reserved for verified states.
 """
 import json
 import sys
@@ -41,12 +41,12 @@ def load() -> dict:
             continue
         out[name] = json.loads(path.read_text())
     if not out:
-        raise SystemExit("no fixtures found — run the scenario generator first")
+        raise SystemExit("no fixtures found; run the scenario generator first")
     return out
 
 
 CSS = TOKENS + FX_CSS + """
-*{margin:0;padding:0;box-sizing:border-box;border-radius:0}
+*{margin:0;padding:0;box-sizing:border-box}
 html{background:var(--ground)}
 body{
   background:var(--ground); color:var(--ink); font-family:var(--sans);
@@ -71,7 +71,7 @@ header{border-bottom:1px solid var(--hair);padding:34px 0}
 .lede{color:var(--ink-dim);max-width:66ch;margin-top:18px;font-size:16px}
 .lede strong{color:var(--ink);font-weight:600}
 
-/* ── trace rail: a real pipeline sequence, hence numbered ── */
+/* trace rail: a real pipeline sequence, hence numbered */
 .rail{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
   background:var(--hair);border-top:1px solid var(--hair);
   border-bottom:1px solid var(--hair)}
@@ -81,51 +81,50 @@ header{border-bottom:1px solid var(--hair);padding:34px 0}
   letter-spacing:-.01em;margin-top:6px}
 .rail .s{font-size:11px;color:var(--muted);margin-top:3px}
 
-/* ── scenario selector ── */
-.tabs{display:flex;flex-wrap:wrap;gap:1px;background:var(--hair);
-  border:1px solid var(--hair);margin:34px 0 0}
-.tab{background:var(--ground);border:0;color:var(--ink-dim);cursor:pointer;
+/* scenario selector */
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:34px 0 0}
+.tab{background:var(--ground-2);border:0;border-radius:var(--r);color:var(--ink-dim);cursor:pointer;
   font-family:var(--mono);font-size:12px;letter-spacing:.12em;
   text-transform:uppercase;padding:13px 20px;flex:1 1 auto;text-align:left}
 .tab:hover{color:var(--ink)}
-.tab[aria-selected="true"]{background:var(--ink);color:var(--ground);font-weight:600}
+.tab[aria-selected="true"]{background:var(--coral);color:var(--ink);font-weight:600}
 .tab .dot{display:inline-block;width:7px;height:7px;margin-right:9px;
   vertical-align:middle}
 
-/* ── verdict ── */
+/* verdict */
 .verdict{display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;
   padding:30px 0 8px;border-bottom:1px solid var(--hair)}
 .pill{font-family:var(--mono);font-size:13px;letter-spacing:.16em;
-  text-transform:uppercase;padding:7px 15px;color:var(--ground);font-weight:600}
+  text-transform:uppercase;padding:7px 15px;color:var(--ground);font-weight:600;
+  border-radius:var(--r)}
 .pill.allow{background:var(--proof)}
-.tab[aria-selected="true"]{background:var(--ember);color:#fff}
-.pill.downsize{background:var(--caution)}
+.pill.downsize{background:var(--lime)}
 .pill.deny,.pill.fail{background:var(--live)}
 .verdict .why{color:var(--ink-dim);font-size:14px;max-width:70ch}
 
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(184px,1fr));
-  gap:1px;background:var(--hair);border:1px solid var(--hair);margin:28px 0}
-.kpi{background:var(--ground);padding:16px 18px}
+  gap:6px;margin:28px 0}
+.kpi{background:var(--ground-2);padding:16px 18px;border-radius:var(--r)}
 .kpi .k{font-family:var(--mono);font-size:10px;letter-spacing:.18em;
   text-transform:uppercase;color:var(--muted)}
 .kpi .v{font-family:var(--mono);font-size:19px;margin-top:7px;
   font-variant-numeric:tabular-nums}
 .kpi .v.good{color:var(--proof)} .kpi .v.bad{color:var(--live)}
-.kpi .v.warn{color:var(--caution)}
+.kpi .v.warn{color:var(--lime)}
 
-/* ── the not-green explainer: present only when something isn't green ── */
-.notes{border:1px solid var(--live);padding:20px 22px;margin:0 0 30px}
+/* the not-green explainer: present only when something is not green */
+.notes{border:1px solid var(--live);border-radius:var(--r);padding:20px 22px;margin:0 0 30px}
 .notes h2{color:var(--live);margin-bottom:12px}
 .notes ul{list-style:none;display:flex;flex-direction:column;gap:9px}
 .notes li{font-size:14px;color:var(--ink-dim);padding-left:17px;position:relative}
-.notes li::before{content:"—";position:absolute;left:0;color:var(--live)}
+.notes li::before{content:"\\2022";position:absolute;left:0;color:var(--live)}
 
 section.panel{border-top:1px solid var(--hair);padding:28px 0}
 .phead{display:flex;align-items:baseline;gap:13px;margin-bottom:16px}
 .phead .num{font-family:var(--mono);font-size:11px;color:var(--muted)}
 .sub{color:var(--muted);font-size:12px;font-family:var(--mono)}
 
-.view{border:1px solid var(--hair);padding:17px 19px;margin-bottom:1px}
+.view{background:var(--ground-2);border-radius:var(--r);padding:17px 19px;margin-bottom:6px}
 .view .r{display:flex;align-items:baseline;gap:13px;flex-wrap:wrap}
 .view .role{font-family:var(--mono);font-size:12px;letter-spacing:.12em;
   text-transform:uppercase}
@@ -134,9 +133,8 @@ section.panel{border-top:1px solid var(--hair);padding:28px 0}
   margin-left:auto}
 .view .txt{color:var(--ink-dim);font-size:14px;margin-top:10px;max-width:78ch}
 
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--hair);
-  border:1px solid var(--hair)}
-.grid2>div{background:var(--ground);padding:17px 19px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.grid2>div{background:var(--ground-2);padding:17px 19px;border-radius:var(--r)}
 @media(max-width:760px){.grid2,.rail{grid-template-columns:1fr}}
 
 .badge{font-family:var(--mono);font-size:11px;letter-spacing:.14em;
@@ -145,7 +143,7 @@ section.panel{border-top:1px solid var(--hair);padding:28px 0}
 .badge.na{color:var(--muted)}
 
 pre{font-family:var(--mono);font-size:12px;line-height:1.62;color:var(--ink-dim);
-  background:#050505;border:1px solid var(--hair);padding:17px 19px;
+  background:var(--ground-2);border:1px solid var(--hair);padding:17px 19px;
   overflow-x:auto;white-space:pre}
 table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;
   font-variant-numeric:tabular-nums}
@@ -155,7 +153,7 @@ th{text-align:left;color:var(--muted);font-weight:400;letter-spacing:.12em;
   border-bottom:1px solid var(--hair)}
 td{padding:9px 13px;border-bottom:1px solid var(--hair);color:var(--ink-dim)}
 tr:last-child td{border-bottom:0}
-td.pick{color:var(--ink)} tr.chosen{background:rgba(61,220,151,.07)}
+td.pick{color:var(--ink)} tr.chosen{background:rgba(208,255,126,.07)}
 tr.chosen td{color:var(--ink)}
 
 .prov{border-left:2px solid var(--hair2);padding:11px 0 11px 16px;
@@ -179,7 +177,7 @@ JS = """
 const S = window.__SCENARIOS__;
 const RAIL = window.__RAIL__;
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const num = (v, d=2) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
+const num = (v, d=2) => (v === null || v === undefined) ? 'n/a' : Number(v).toFixed(d);
 
 function verdictOf(d){
   if (d.scenario === 'fail_closed') return {cls:'fail', label:'FAIL-CLOSED'};
@@ -200,7 +198,7 @@ function notGreen(d){
     out.push('Upstream data could not be fetched. The desk reports an outage rather than a market judgement, and sends nothing.');
   if (g && g.decision === 'DENY') out.push('RiskGuard refused this order: ' + g.reason);
   if (g && g.decision === 'ALLOW_WITH_DOWNSIZE')
-    out.push('RiskGuard approved a smaller position than requested — ' +
+    out.push('RiskGuard approved a smaller position than requested: ' +
       d.requested_contracts + ' contract(s) requested, ' + g.approved_contracts + ' approved. ' + g.reason);
   const v = d.veto || {};
   if (v.thesis && v.thesis.ok === false) out.push('Thesis check vetoed: ' + v.thesis.reason);
@@ -236,11 +234,11 @@ function render(key){
         'No order was sent.')}</span></div>`;
 
   h += '<div class="kpis fade">' +
-    kpi('Underlying', esc(m.underlying || '—')) +
-    kpi('Spot', m.spot ? '$' + num(m.spot) : '—') +
+    kpi('Underlying', esc(m.underlying || 'n/a')) +
+    kpi('Spot', m.spot ? '$' + num(m.spot) : 'n/a') +
     kpi('ATM IV vs realized', m.atm_iv != null && m.realized_vol != null
         ? ((m.atm_iv - m.realized_vol) * 100 >= 0 ? '+' : '') +
-          num((m.atm_iv - m.realized_vol) * 100) + 'pp' : '—') +
+          num((m.atm_iv - m.realized_vol) * 100) + 'pp' : 'n/a') +
     kpi('Candidates built', (d.candidates ? d.candidates.length : 0) + ' shown') +
     kpi('Committee choice', esc(d.chosen_id || 'ABSTAIN'),
         d.chosen_id && d.chosen_id !== 'ABSTAIN' ? '' : 'warn') +
@@ -253,7 +251,7 @@ function render(key){
       ng.map(x => `<li>${esc(x)}</li>`).join('') + '</ul></div>';
   }
 
-  // 1 — Snapshot
+  // 1. Snapshot
   h += panel(1, `<div class="grid2">
       <div><div class="eyebrow">Realized volatility</div>
         <div class="mono" style="font-size:22px;margin-top:7px">${num(m.realized_vol*100)}%</div></div>
@@ -262,7 +260,7 @@ function render(key){
     </div>${m.iv_minus_realized_note ? `<div class="prov">${esc(m.iv_minus_realized_note)}</div>` : ''}
     ${candidateTable(d)}`);
 
-  // 2 — Committee
+  // 2. Committee
   const views = (d.committee && d.committee.views) || [];
   h += panel(2, views.length ? views.map(x => `
       <div class="view"><div class="r">
@@ -277,12 +275,12 @@ function render(key){
         <span class="p">${esc((d.committee.trader && d.committee.trader.choice_id) || 'ABSTAIN')}</span>
         <span class="model">${esc((d.committee.trader && d.committee.trader.model) || '')}</span></div>
         <div class="txt">${esc((d.committee.trader && d.committee.trader.reasoning) || '')}</div></div>
-      <div class="prov">Aggregate probability <b>${num(d.committee.aggregate_probability)}</b> —
-        an abstaining analyst is excluded from both the numerator and the denominator,
+      <div class="prov">Aggregate probability <b>${num(d.committee.aggregate_probability)}</b>.
+        An abstaining analyst is excluded from both the numerator and the denominator,
         so "no opinion" never counts as neutral.</div>`
-    : '<div class="prov">No committee ran — the cycle stopped before any model was called.</div>');
+    : '<div class="prov">No committee ran. The cycle stopped before any model was called.</div>');
 
-  // 3 — Veto
+  // 3. Veto
   h += panel(3, `<div class="grid2">
       <div><div class="eyebrow">Thesis check · pure code</div>
         <div style="margin:10px 0">${badge(v.thesis ? v.thesis.ok : null)}</div>
@@ -291,38 +289,38 @@ function render(key){
         <div style="margin:10px 0">${badge(v.blind ? v.blind.ok : null)}</div>
         <div class="txt" style="color:var(--ink-dim);font-size:13px">${esc((v.blind && v.blind.reason) || 'not run')}</div></div>
     </div>
-    <div class="prov">Two reviewers that fail differently: one is deterministic code checking the
-      position's delta against the structure's own thesis, the other a model shown the candidate
-      and price action but <b>never the committee's reasoning</b>. Two calls to the same model on the
+    <div class="prov">Two reviewers that fail differently. One is deterministic code checking the
+      position's delta against the structure's own thesis. The other is a model shown the
+      candidate and price action but <b>never the committee's reasoning</b>. Two calls to the same model on the
       same context would agree with each other and prove nothing.</div>`);
 
-  // 4 — Guard
+  // 4. Guard
   h += panel(4, g ? `<div class="grid2">
       <div><div class="eyebrow">Verdict</div>
         <div class="mono" style="font-size:20px;margin-top:8px;color:${
-          g.decision==='DENY'?'var(--live)':g.decision==='ALLOW'?'var(--proof)':'var(--caution)'}">${esc(g.decision)}</div></div>
+          g.decision==='DENY'?'var(--live)':g.decision==='ALLOW'?'var(--proof)':'var(--lime)'}">${esc(g.decision)}</div></div>
       <div><div class="eyebrow">Approved contracts</div>
         <div class="mono" style="font-size:20px;margin-top:8px">${g.approved_contracts}</div></div>
     </div><div class="prov">${esc(g.reason)}</div>
-    ${ci ? `<div class="prov">Position Greeks — delta <b>${num(ro.position_delta,1)}</b>,
+    ${ci ? `<div class="prov">Position Greeks: delta <b>${num(ro.position_delta,1)}</b>,
        vega <b>${num(ro.position_vega,1)}</b>. Limits are |delta| ≤ 30 and |vega| ≤ 200,
        with max loss capped at $1,000 per position.</div>` : ''}`
-    : '<div class="prov">The guard was never reached — nothing was proposed to it.</div>');
+    : '<div class="prov">The guard was never reached. Nothing was proposed to it.</div>');
 
-  // 5 — Execution
+  // 5. Execution
   h += panel(5, ro.payload
     ? `<pre>${esc(JSON.stringify(ro.payload, null, 2))}</pre>
        <div class="prov">A negative <code>limit_price</code> is Alpaca's convention for a net credit
        received. The <code>client_order_id</code> is derived deterministically from the legs and the
        UTC date, so a retry is rejected by the broker as a duplicate rather than opening a second
        position.</div>`
-    : '<div class="prov">No payload — nothing was sent, and nothing would have been.</div>');
+    : '<div class="prov">No payload. Nothing was sent, and nothing would have been.</div>');
 
   if (d.provenance) {
     const p = d.provenance;
     h += `<section class="panel"><div class="phead"><h2>Provenance</h2>
       <span class="sub">where this data came from</span></div>
-      <div class="prov"><b>${esc(p.kind)}</b> — ` +
+      <div class="prov"><b>${esc(p.kind)}</b>: ` +
       Object.entries(p).filter(([k]) => k !== 'kind')
         .map(([k, val]) => `<br><b>${esc(k)}:</b> ${esc(val)}`).join('') + '</div></section>';
   }
@@ -344,12 +342,12 @@ function candidateTable(d){
       <th>max loss</th><th>breakeven</th></tr></thead><tbody>` +
     cs.map(c => `<tr class="${c.id === d.chosen_id ? 'chosen' : ''}">
       <td class="pick">${esc(c.id)}</td><td>${esc(c.structure)}</td><td>${c.dte}</td>
-      <td>${c.net_credit != null ? '$' + num(c.net_credit) : '—'}</td>
-      <td>${c.max_loss != null ? '$' + num(c.max_loss, 0) : '—'}</td>
-      <td>${c.breakevens && c.breakevens.length ? num(c.breakevens[0]) : '—'}</td>
+      <td>${c.net_credit != null ? '$' + num(c.net_credit) : 'n/a'}</td>
+      <td>${c.max_loss != null ? '$' + num(c.max_loss, 0) : 'n/a'}</td>
+      <td>${c.breakevens && c.breakevens.length ? num(c.breakevens[0]) : 'n/a'}</td>
     </tr>`).join('') + `</tbody></table></div>
     <div class="prov">Every one of these was built by deterministic code before any model saw
-    anything. The committee may pick one <b>by id</b> or abstain — it cannot invent a strike,
+    anything. The committee may pick one <b>by id</b> or abstain. It cannot invent a strike,
     change a quantity, or move a price, because no code path allows it.</div>`;
 }
 
@@ -388,8 +386,8 @@ def build() -> str:
   <div class="eyebrow">Alpaca AI Trading Agents · Options Alpha</div>
   <h1>The options desk<br>that grades itself</h1>
   <p class="lede">Deterministic code builds every trade. The model's only power is to
-  <strong>choose one or refuse</strong>. Replay four real decisions below — including two
-  refusals — and verify every one yourself with no credentials, no API keys, and
+  <strong>choose one or refuse</strong>. Replay four real decisions below, including two
+  refusals, and verify every one yourself with no credentials, no API keys, and
   no model calls.</p>
 </div></header>
 
@@ -403,7 +401,7 @@ def build() -> str:
       <ul>
         <li>Paper trading only. Never live capital, by construction.</li>
         <li>A handful of trades proves nothing statistically, and we don't imply otherwise.</li>
-        <li>The <code>fail-closed</code> scenario is constructed — no live cycle has yet hit a data outage.</li>
+        <li>The <code>fail-closed</code> scenario is constructed. No live cycle has yet hit a data outage.</li>
       </ul>
       <ul>
         <li>Committee text is the real recorded model output, not written for this page.</li>
