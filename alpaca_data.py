@@ -11,8 +11,17 @@ OI >= 100, so `get_option_chain` merges the two sources and drops any contract
 whose OI cannot be established. Unknown OI becomes 0, which fails the liquidity
 gate — fail closed rather than trade blind (hard rule 2).
 
-Every fetch failure returns empty (no bars / no quotes), never partial or stale
-data, and failures are not cached.
+Failure policy follows spec 4.4 — **fail loud on data, fail soft on the LLM**:
+
+  * `get_stock_bars` returns an empty frame on failure; its caller treats an
+    empty frame as a hard stop, so the distinction is already visible there.
+  * `get_option_chain` **raises MarketDataError** when a fetch fails, and
+    returns [] only when the fetch succeeded and nothing was tradeable. These
+    are opposite situations — an outage versus a market judgement — and
+    collapsing them into [] let a broken feed be reported as "ABSTAIN: no
+    candidate passed the liquidity gate" with a success exit code.
+
+Never partial or stale data, and failures are not cached.
 """
 import logging
 import os
@@ -26,6 +35,10 @@ from candidate_builder import MAX_DTE, MIN_DTE, OptionQuote
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SECONDS = 15 * 60  # 15 minutes
+
+
+class MarketDataError(RuntimeError):
+    """A market-data fetch failed. Not the same as "nothing to trade"."""
 
 
 class AlpacaData:
@@ -126,8 +139,10 @@ class AlpacaData:
     ) -> list[OptionQuote]:
         """Option chain as OptionQuotes, with open interest merged in.
 
-        Returns [] on any failure. Contracts whose OI or quote cannot be
-        established are dropped rather than guessed at.
+        Raises MarketDataError if either fetch fails — the caller must stop and
+        say so, not abstain quietly. Returns [] when the fetches succeeded but
+        no contract survived: contracts whose OI or quote cannot be established
+        are dropped rather than guessed at.
         """
         key = ("chain", underlying, min_dte, max_dte)
         hit = self._cached(key)
@@ -145,11 +160,14 @@ class AlpacaData:
                 )
             ) or {}
         except Exception as e:
-            logger.warning("Option chain fetch failed for %s: %s", underlying, e)
-            return []
+            logger.error("Option chain fetch failed for %s: %s", underlying, e)
+            raise MarketDataError(f"Option chain fetch failed for {underlying}: {e}") from e
 
         open_interest = self._open_interest_by_symbol(underlying, min_dte, max_dte)
         if not open_interest:
+            # A successful call that returned no contracts: an empty universe,
+            # not an outage. Every snapshot then fails the OI merge below and
+            # the result is an honest empty chain.
             logger.warning("No contract metadata for %s — cannot verify open interest", underlying)
             return []
 
@@ -195,8 +213,10 @@ class AlpacaData:
             )
             contracts = getattr(response, "option_contracts", None) or []
         except Exception as e:
-            logger.warning("Contract metadata fetch failed for %s: %s", underlying, e)
-            return {}
+            logger.error("Contract metadata fetch failed for %s: %s", underlying, e)
+            raise MarketDataError(
+                f"Contract metadata fetch failed for {underlying}: {e}"
+            ) from e
 
         out = {}
         for c in contracts:

@@ -208,8 +208,34 @@ class TestOptionChain:
         )
         assert d.get_option_chain("SPY") == []
 
-    def test_api_error_returns_empty_list(self, clock):
+    def test_chain_api_error_raises_rather_than_returning_empty(self, clock):
+        """Spec 4.4: fail LOUD on data.
+
+        Was `assert d.get_option_chain("SPY") == []`. That made an outage
+        indistinguishable from a chain that is genuinely too illiquid to
+        trade, so the session printed "ABSTAIN: no candidate passed the
+        liquidity gate" and exited 0 — reporting a broken data feed as a
+        market judgement, on camera, with nobody alerted.
+        """
+        from alpaca_data import MarketDataError
         d = AlpacaData(FakeStockClient(), FakeOptionClient(raises=True),
+                       FakeTradingClient(), clock=clock)
+        with pytest.raises(MarketDataError, match="SPY"):
+            d.get_option_chain("SPY")
+
+    def test_contract_metadata_error_raises_too(self, clock):
+        """Open interest comes from a second call; its failure is equally an
+        outage, not an illiquid market."""
+        from alpaca_data import MarketDataError
+        d = AlpacaData(FakeStockClient(), FakeOptionClient(),
+                       FakeTradingClient(raises=True), clock=clock)
+        with pytest.raises(MarketDataError):
+            d.get_option_chain("SPY")
+
+    def test_successful_but_empty_chain_is_still_an_empty_list(self, clock):
+        """The other side of the distinction: a fetch that worked and found
+        nothing tradeable is an ordinary abstention, not an error."""
+        d = AlpacaData(FakeStockClient(), FakeOptionClient({}),
                        FakeTradingClient(), clock=clock)
         assert d.get_option_chain("SPY") == []
 

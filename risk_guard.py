@@ -160,12 +160,23 @@ class RiskGuard:
         options_level: int,
         open_positions: int,
         equity: float | None = None,
+        require_flat: bool = True,
     ) -> tuple[bool, str]:
         """Preflight before any session. All must hold or the agent must not run.
 
-        `equity` is optional: supply it at session start to assert a fresh
-        dedicated account, and omit it mid-session once P&L has legitimately
-        moved the balance.
+        Two of these checks describe the *first* run on a new dedicated paper
+        account, which is what the submission rules require, and are wrong for
+        every run after it:
+
+        * `equity` — supply it to assert an untouched $100,000; omit it once
+          P&L has legitimately moved the balance.
+        * `require_flat` — pass False once the desk holds a position, so later
+          cycles can still monitor and exit it. The concurrent position cap is
+          enforced per order by `evaluate`, not here, so relaxing this does not
+          relax any limit; it only stops the desk being single-use.
+
+        Everything else — paper-only, options level, kill switch — applies to
+        every run without exception.
         """
         killed, why = self.kill_switch_active()
         if killed:
@@ -177,7 +188,7 @@ class RiskGuard:
                 f"Options level {options_level} below required "
                 f"{self.config.min_options_level} for defined-risk spreads"
             )
-        if open_positions > 0:
+        if require_flat and open_positions > 0:
             return False, (
                 f"Account has {open_positions} pre-existing position(s); "
                 f"expected a flat account at startup"

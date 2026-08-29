@@ -325,3 +325,53 @@ class TestStartupChecks:
         """Equity is optional so mid-session checks don't fail once P&L moves."""
         ok, err = guard.startup_checks(is_paper=True, options_level=3, open_positions=0)
         assert ok is True, err
+
+
+class TestMidSessionStartupChecks:
+    """C3: `make session` must survive its own first fill.
+
+    The flat-account and fresh-$100k assertions describe the *first* run on a
+    new dedicated paper account, which is what the submission rules require.
+    Applied to every run they make the desk single-use: after one fill, equity
+    has moved and a position is open, so every later cycle aborts in preflight
+    and the position can never be monitored or exited.
+    """
+
+    def test_mid_session_run_with_an_open_position_is_allowed(self, guard):
+        ok, err = guard.startup_checks(is_paper=True, options_level=3,
+                                       open_positions=1, require_flat=False)
+        assert ok is True, err
+
+    def test_mid_session_run_does_not_assert_fresh_equity(self, guard):
+        """Equity has legitimately moved; omitting it is how the guard's own
+        docstring says to run mid-session."""
+        ok, err = guard.startup_checks(is_paper=True, options_level=3,
+                                       open_positions=1, equity=None,
+                                       require_flat=False)
+        assert ok is True, err
+
+    def test_first_run_of_the_day_still_demands_a_flat_fresh_account(self, guard):
+        ok, err = guard.startup_checks(is_paper=True, options_level=3,
+                                       open_positions=1, equity=100_000.0)
+        assert ok is False
+        assert "flat" in err.lower() or "pre-existing" in err.lower()
+
+    def test_mid_session_still_refuses_a_live_account(self, guard):
+        """Relaxing the flat check must not relax anything else."""
+        ok, err = guard.startup_checks(is_paper=False, options_level=3,
+                                       open_positions=1, require_flat=False)
+        assert ok is False
+        assert "paper" in err.lower()
+
+    def test_mid_session_still_refuses_a_low_options_level(self, guard):
+        ok, err = guard.startup_checks(is_paper=True, options_level=2,
+                                       open_positions=1, require_flat=False)
+        assert ok is False
+        assert "level" in err.lower()
+
+    def test_mid_session_still_honours_the_kill_switch(self, guard, tmp_path):
+        (tmp_path / "KILL_SWITCH").touch()
+        ok, err = guard.startup_checks(is_paper=True, options_level=3,
+                                       open_positions=1, require_flat=False)
+        assert ok is False
+        assert "kill" in err.lower()
