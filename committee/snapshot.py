@@ -14,9 +14,20 @@ To stay deterministic under those two pressures, this module:
     output does not depend on the order candidates happened to arrive in from
     a live chain fetch (a real chain yields ~600 candidates in no promised
     order).
+
+It also has to CONTAIN the analysts' decision variables. The vol analyst is
+asked to judge implied-vs-realized vol and liquidity; against an earlier
+version of this snapshot — which carried neither — it abstained with "Implied
+volatility data is not provided" on every live call. So each leg renders its
+implied vol, open interest, bid, ask and quote width, and the header carries
+the ATM implied vol and the IV-minus-realized spread, which is the actual
+decision variable for premium selling. Where no IV solves, the field says
+`unavailable` rather than disappearing: an analyst must be able to tell "no
+data" from "low vol".
 """
 from dataclasses import dataclass, field
 
+import analytics
 from candidate_builder import TradeIntent
 
 
@@ -63,20 +74,67 @@ def _candidate_sort_key(intent: TradeIntent):
             intent.contracts)
 
 
-def _render_candidate(cid: str, intent: TradeIntent) -> str:
-    legs = "; ".join(
-        f"{leg.side} {_money(leg.quote.strike)}{leg.quote.right}"
-        for leg in intent.legs
+UNAVAILABLE = "unavailable"
+
+
+def _leg_iv(leg, spot: float, dte: int) -> float | None:
+    """Implied vol for one leg, or None when no IV solves its quote.
+
+    `analytics.implied_vol` already fails closed (a quote below intrinsic, a
+    zero bid) — None here means "no data", which is rendered as such rather
+    than omitted. An analyst that cannot distinguish "no data" from "low vol"
+    will read one as the other.
+    """
+    q = leg.quote
+    return analytics.implied_vol(
+        q.mid, spot, q.strike, analytics.time_to_expiry_years(dte), q.right)
+
+
+def _render_leg(leg, iv: float | None) -> str:
+    q = leg.quote
+    iv_text = f"{_pct(iv)}%" if iv is not None else UNAVAILABLE
+    width = q.spread_pct
+    width_text = f"{_pct(width)}%" if width != float("inf") else UNAVAILABLE
+    return (
+        f"{leg.side} {_money(q.strike)}{q.right} "
+        f"(iv={iv_text} oi={q.open_interest} bid={_money(q.bid)} "
+        f"ask={_money(q.ask)} width={width_text})"
     )
+
+
+def _render_candidate(cid: str, intent: TradeIntent, spot: float) -> str:
+    leg_ivs = [_leg_iv(leg, spot, intent.dte) for leg in intent.legs]
+    legs = "; ".join(_render_leg(leg, iv) for leg, iv in zip(intent.legs, leg_ivs))
     breakevens = ", ".join(_money(b) for b in intent.breakevens)
     max_profit = "inf" if intent.max_profit == float("inf") else _money(intent.max_profit)
+    solved = [iv for iv in leg_ivs if iv is not None]
+    mean_iv = f"{_pct(sum(solved) / len(solved))}%" if solved else UNAVAILABLE
     return (
-        f"{cid} | {intent.structure} | DTE={intent.dte}\n"
+        f"{cid} | {intent.structure} | DTE={intent.dte} | contracts={intent.contracts}\n"
         f"  legs: {legs}\n"
+        f"  mean_leg_iv={mean_iv}\n"
         f"  net_credit={_money(intent.net_credit)} "
         f"max_loss={_money(intent.max_loss)} max_profit={max_profit}\n"
         f"  breakevens={breakevens}"
     )
+
+
+def _atm_implied_vol(candidates: list[TradeIntent], spot: float) -> float | None:
+    """IV of the leg closest to the money across the rendered candidates.
+
+    That single number — not a skew-weighted average over every strike — is
+    what "implied volatility" means when set against realized vol, so it is
+    what the header compares. Ties are broken on (strike, right) so the choice
+    is deterministic. None when no leg's IV solves.
+    """
+    legs = [(abs(leg.quote.strike - spot), leg.quote.strike, leg.quote.right,
+             leg, intent.dte)
+            for intent in candidates for leg in intent.legs]
+    for _distance, _strike, _right, leg, dte in sorted(legs, key=lambda x: x[:3]):
+        iv = _leg_iv(leg, spot, dte)
+        if iv is not None:
+            return iv
+    return None
 
 
 def render_snapshot(
@@ -101,13 +159,20 @@ def render_snapshot(
     capped = ordered[:max_candidates]
     by_id = {f"c{i}": intent for i, intent in enumerate(capped, start=1)}
 
+    atm_iv = _atm_implied_vol(capped, spot)
     lines = [
         f"UNDERLYING: {underlying}",
         f"SPOT: {_money(spot)}",
         f"REALIZED_VOL: {_pct(realized_vol)}%",
+        f"IMPLIED_VOL_ATM: {f'{_pct(atm_iv)}%' if atm_iv is not None else UNAVAILABLE}",
+        # The decision variable for premium selling: positive = implied is
+        # rich vs realized (favours credit structures), negative = cheap
+        # (favours long vol). In percentage points.
+        f"IV_MINUS_REALIZED: "
+        f"{f'{(atm_iv - realized_vol) * 100:+.2f}pp' if atm_iv is not None else UNAVAILABLE}",
         f"CANDIDATES ({len(capped)} of {total}):",
     ]
     for cid, intent in by_id.items():
-        lines.append(_render_candidate(cid, intent))
+        lines.append(_render_candidate(cid, intent, spot))
 
     return Snapshot(text="\n".join(lines) + "\n", candidates=by_id)

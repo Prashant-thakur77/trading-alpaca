@@ -96,6 +96,64 @@ def test_no_timestamp_leaks_into_snapshot():
     assert not re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", s.text)
 
 
+# ---- the vol analyst's decision variables must actually be in the text ----
+#
+# The vol analyst is asked to judge implied-vs-realized vol and liquidity.
+# Against a snapshot that carried neither, it abstained with "Implied
+# volatility data is not provided" every time — a committee permanently
+# biased toward ABSTAIN. Everything below already exists on OptionQuote
+# (bid/ask/open_interest) or is computable from it (analytics.implied_vol).
+
+def test_each_leg_renders_implied_vol_open_interest_and_quote_width():
+    snap = render_snapshot("SPY", 500.0, 0.18, [_bull_put(495, 490)])
+    text = snap.text
+    assert "iv=" in text
+    assert "oi=500" in text
+    assert "bid=" in text and "ask=" in text
+    assert "width=" in text
+
+
+def test_header_reports_implied_vol_and_the_iv_minus_realized_spread():
+    snap = render_snapshot("SPY", 500.0, 0.18, [_bull_put(495, 490)])
+    text = snap.text
+    assert "IMPLIED_VOL_ATM:" in text
+    assert "IV_MINUS_REALIZED:" in text
+    # the spread is a real number here, not a placeholder
+    line = [l for l in text.splitlines() if l.startswith("IV_MINUS_REALIZED:")][0]
+    assert "unavailable" not in line
+    assert "pp" in line
+
+
+def test_unsolvable_iv_is_rendered_as_explicitly_unavailable_not_omitted():
+    # A quote priced far below intrinsic: no IV solves. The analyst must be
+    # able to tell "no data" from "low vol", so the field is present and says
+    # so rather than vanishing.
+    from candidate_builder import Leg, TradeIntent
+    bad = OptionQuote(symbol="SPYBAD", underlying="SPY", strike=100.0,
+                      expiry=EXPIRY, right="c", bid=0.01, ask=0.02,
+                      open_interest=500)
+    intent = TradeIntent(
+        underlying="SPY", structure="bull_put_spread",
+        legs=(Leg(bad, "sell", 1), Leg(bad, "buy", 1)),
+        contracts=1, net_credit=0.0, max_loss=100.0, max_profit=10.0,
+        breakevens=(100.0,), dte=30,
+    )
+    snap = render_snapshot("SPY", 500.0, 0.18, [intent])
+    assert "iv=unavailable" in snap.text
+    assert "IMPLIED_VOL_ATM: unavailable" in snap.text
+    assert "IV_MINUS_REALIZED: unavailable" in snap.text
+
+
+def test_implied_vol_rendering_stays_deterministic():
+    a = render_snapshot("SPY", 500.0, 0.18, [_bull_put(495, 490), _bear_call(510, 515)])
+    b = render_snapshot("SPY", 500.0, 0.18, [_bear_call(510, 515), _bull_put(495, 490)])
+    assert a.text == b.text
+    # and rounded, not repr-drifted
+    import re
+    for value in re.findall(r"iv=([0-9.]+)%", a.text):
+        assert len(value.split(".")[1]) == 2
+
+
 # ---- the id -> TradeIntent mapping is part of the return value ----
 #
 # Hard rule 1 says an LLM may only pick an id that deterministic code built.
