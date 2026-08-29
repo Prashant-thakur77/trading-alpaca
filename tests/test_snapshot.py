@@ -10,7 +10,9 @@ from datetime import date, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from candidate_builder import OptionQuote, build_bull_put_spread, build_bear_call_spread
+from candidate_builder import (
+    OptionQuote, build_bull_put_spread, build_bear_call_spread, build_long_straddle,
+)
 from committee.snapshot import Snapshot, render_snapshot
 
 EXPIRY = date.today() + timedelta(days=30)
@@ -36,6 +38,12 @@ def _bear_call(short_strike, long_strike):
     intent = build_bear_call_spread(
         _q(short_strike, "c", 2.40, 2.60), _q(long_strike, "c", 1.45, 1.55)
     )
+    assert intent is not None
+    return intent
+
+
+def _straddle(strike):
+    intent = build_long_straddle(_q(strike, "c", 2.40, 2.60), _q(strike, "p", 2.40, 2.60))
     assert intent is not None
     return intent
 
@@ -275,3 +283,66 @@ def test_the_sign_convention_line_stays_deterministic():
     a = render_snapshot("SPY", 500.0, 0.90, [_bull_put(495, 490)])
     b = render_snapshot("SPY", 500.0, 0.90, [_bull_put(495, 490)])
     assert a.text == b.text
+
+
+# ---- the cap must be stratified by structure, not a global top-N ----
+#
+# On a real SPY chain (2026-08-29) `build_candidates` produced 440
+# bull_put_spread, 188 bear_call_spread and 4 long_straddle candidates. A
+# global top-N by `_candidate_sort_key` — which sorts by structure name
+# first — surfaced 12 bear_call_spread and NOTHING else: the committee chose
+# from a menu with one dish, and abstained with "every candidate is a bear
+# call spread, the wrong direction" in a regime (IV below realized) where the
+# correct structure — long straddle — was structurally invisible. The cap
+# must give every present structure type a fair, round-robin share so the
+# committee can actually see its options.
+
+def _many_bull_puts(n, start=500):
+    return [_bull_put(start - i, start - 5 - i) for i in range(n)]
+
+
+def _many_bear_calls(n, start=500):
+    return [_bear_call(start + i, start + 5 + i) for i in range(n)]
+
+
+def _many_straddles(n, start=500):
+    return [_straddle(start + 5 * i) for i in range(n)]
+
+
+def test_every_present_structure_type_appears_in_the_surfaced_set():
+    candidates = _many_bull_puts(5) + _many_bear_calls(5) + _many_straddles(2)
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=6)
+    structures = {intent.structure for intent in s.candidates.values()}
+    assert structures == {"bull_put_spread", "bear_call_spread", "long_straddle"}
+
+
+def test_single_structure_present_still_fills_the_cap():
+    candidates = _many_bull_puts(20)
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=5)
+    assert len(s.candidates) == 5
+    assert all(i.structure == "bull_put_spread" for i in s.candidates.values())
+
+
+def test_shuffling_the_input_does_not_change_the_stratified_surfaced_set():
+    candidates = _many_bull_puts(10) + _many_bear_calls(10) + _many_straddles(3)
+    baseline = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=9)
+    import random
+    shuffled_candidates = list(candidates)
+    random.Random(42).shuffle(shuffled_candidates)
+    shuffled = render_snapshot("SPY", 500.0, 0.18, shuffled_candidates, max_candidates=9)
+    assert shuffled.text == baseline.text
+    assert shuffled.candidates == baseline.candidates
+
+
+def test_a_scarce_structure_does_not_starve_the_others_of_slots():
+    # Only 1 straddle candidate exists; the remaining 8 slots (of 9) must
+    # still be split fairly between the other two structures rather than
+    # all going to whichever sorts first.
+    candidates = _many_bull_puts(10) + _many_bear_calls(10) + _many_straddles(1)
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=9)
+    counts = {}
+    for intent in s.candidates.values():
+        counts[intent.structure] = counts.get(intent.structure, 0) + 1
+    assert counts["long_straddle"] == 1
+    assert counts["bull_put_spread"] == 4
+    assert counts["bear_call_spread"] == 4

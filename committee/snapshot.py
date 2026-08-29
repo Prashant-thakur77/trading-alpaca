@@ -74,6 +74,59 @@ def _candidate_sort_key(intent: TradeIntent):
             intent.contracts)
 
 
+def _stratified_cap(ordered: list[TradeIntent], max_candidates: int) -> list[TradeIntent]:
+    """Select up to `max_candidates` from `ordered`, giving every structure
+    type present a fair, round-robin share instead of a global top-N.
+
+    A global top-N by `_candidate_sort_key` sorts by structure name first, so
+    whichever structure sorts first (or is simply most numerous) fills the
+    entire cap and every other structure — however sound a candidate it
+    holds — never reaches the committee. On a real chain that surfaced 12
+    bear_call_spread candidates and zero bull_put_spread or long_straddle,
+    making the correct structure for the regime structurally invisible.
+
+    `ordered` is already the canonical, order-independent sort (see
+    `render_snapshot`), so grouping by structure and walking each group in
+    that order gives a `(structures, per-structure index)` selection that
+    depends only on the canonical key — never on the caller's input order.
+    Round-robin (one candidate per present structure per round, skipping any
+    structure already exhausted) ensures a structure with fewer candidates
+    than its even share is included in full rather than starving out the
+    others: it simply drops out of later rounds and its slots roll over to
+    whichever structures still have candidates left.
+
+    The selection is returned in the original canonical order (structure,
+    dte, strikes, net_credit, contracts) — i.e. the existing sort remains
+    both the within-structure ordering and, for the surfaced subset, the
+    final rendering order. When nothing needs to be dropped (total fits
+    within `max_candidates`) this is byte-identical to the previous
+    behaviour of taking `ordered[:max_candidates]` in full.
+    """
+    groups: dict[str, list[int]] = {}
+    for idx, intent in enumerate(ordered):
+        groups.setdefault(intent.structure, []).append(idx)
+    structures = sorted(groups)  # deterministic, independent of input order
+    pointers = {s: 0 for s in structures}
+
+    selected_idx: list[int] = []
+    while len(selected_idx) < max_candidates:
+        progressed = False
+        for s in structures:
+            if len(selected_idx) >= max_candidates:
+                break
+            p = pointers[s]
+            idxs = groups[s]
+            if p < len(idxs):
+                selected_idx.append(idxs[p])
+                pointers[s] = p + 1
+                progressed = True
+        if not progressed:
+            break  # every structure exhausted before reaching the cap
+
+    selected_idx.sort()
+    return [ordered[i] for i in selected_idx]
+
+
 UNAVAILABLE = "unavailable"
 
 
@@ -185,8 +238,11 @@ def render_snapshot(
     """Render one deterministic `Snapshot` for the given cycle inputs.
 
     Candidates are sorted by a canonical key (structure, dte, strikes, net
-    credit, contracts) before ids c1..cN are assigned and the list is capped
-    at `max_candidates` — so the selection is reproducible regardless of the
+    credit, contracts) before ids c1..cN are assigned. The list is then
+    capped at `max_candidates` via a stratified, round-robin selection across
+    the structure types actually present (see `_stratified_cap`) — not a
+    global top-N — so every available structure type is represented in what
+    the committee sees, and the selection is reproducible regardless of the
     order the caller's candidate list happened to be built in.
 
     Returns both the text the analysts see and the id -> TradeIntent mapping
@@ -194,7 +250,7 @@ def render_snapshot(
     """
     ordered = sorted(candidates, key=_candidate_sort_key)
     total = len(ordered)
-    capped = ordered[:max_candidates]
+    capped = _stratified_cap(ordered, max_candidates)
     by_id = {f"c{i}": intent for i, intent in enumerate(capped, start=1)}
 
     atm_iv = _atm_implied_vol(capped, spot)
