@@ -6,6 +6,9 @@ the LLM's only power is to choose one or refuse.**
 Built for the [Alpaca AI Trading Agents Hackathon](https://lablab.ai/event/alpaca-ai-trading-agents-hackathon)
 (Options Alpha Agents track). Paper trading only.
 
+**🛡️ [Judge desk — replay four real decisions](https://trading-alpaca-judge.vercel.app)** ·
+no credentials, no API keys, no model calls. Two of the four are refusals.
+
 Most trading agents ask a language model *"what should I buy?"* and act on the
 answer. That is fast to build and impossible to trust: the model can hallucinate
 a strike, size a position wrongly, or be confidently wrong with no record of why.
@@ -168,8 +171,10 @@ drawn exists and runs today.
   the committee's reasoning, both vetoes, the guard verdict and the exact wire
   payload — while sending nothing.
 - Honest limitations stated below rather than omitted.
-- *Planned: a credential-free judge page with one-click replay of recorded
-  decisions.*
+- **[A credential-free judge page](https://trading-alpaca-judge.vercel.app)** replaying four
+  recorded decisions. The verdicts and payloads are *recomputed* in the browser from the
+  committed fixtures, not copied — and `python3 scripts/replay.py --all --verify` reproduces
+  them locally with the environment stripped.
 
 ---
 
