@@ -1,0 +1,23 @@
+{
+  "scenario": "fail_closed",
+  "provenance": {
+    "kind": "constructed",
+    "detail": "No live cycle has hit a chain-fetch outage. This fixture runs scripts/run_session.main \u2014 the real production entrypoint, unmodified \u2014 with an injected broker/data client whose get_option_chain() raises a ConnectionError, same as tests/test_run_session_main.py's TestDataFailures.test_chain_fetch_failure_exits_nonzero. The stdout and exit code recorded below are the real, unedited output of that call."
+  },
+  "session_args": {
+    "argv": [
+      "--symbol",
+      "SPY"
+    ]
+  },
+  "injected_failure": {
+    "stage": "snapshot",
+    "call": "AlpacaData.get_option_chain",
+    "error_type": "ConnectionError",
+    "error_message": "option chain request timed out"
+  },
+  "recorded_outcome": {
+    "exit_code": 1,
+    "stdout": "  DATA FETCH FAILED \u2014 option chain for SPY (option chain request timed out).\n  This is an outage, not a market judgement. No trade.\n"
+  }
+}

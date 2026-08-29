@@ -1,4 +1,4 @@
-.PHONY: help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session calibration clean
+.PHONY: help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session calibration judge clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
@@ -19,6 +19,7 @@ help: ## Show available commands
 	@echo "  make walkforward  Run walk-forward OOS validation (needs Alpaca keys)"
 	@echo "  make session-dry  Run one session cycle, no order sent"
 	@echo "  make session      Run one session cycle, guarded execution live"
+	@echo "  make judge        Replay the 4 credential-free judge scenarios"
 	@echo "  make reset        Reset paper balance to \$$100,000"
 	@echo "  make clean        Remove caches and logs"
 
@@ -69,6 +70,9 @@ session-dry:
 
 session:
 	python3 scripts/run_session.py
+
+judge:
+	python3 scripts/replay.py --all
 
 clean:
 	rm -rf __pycache__ tests/__pycache__ .pytest_cache logs/*.log

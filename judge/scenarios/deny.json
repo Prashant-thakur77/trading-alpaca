@@ -1,0 +1,486 @@
+{
+  "scenario": "deny",
+  "provenance": {
+    "kind": "mixed",
+    "committee": "live \u2014 real recorded committee cycle (same mechanism as allow.json), a different real SPY chain snapshot on 2026-08-29 (spot $769.35).",
+    "veto_blind": "live \u2014 real recorded blind-review response for this exact candidate.",
+    "veto_thesis": "computed fresh, pure code, not recorded.",
+    "portfolio_state": "constructed \u2014 no live session has yet opened 3 concurrent positions. open_positions=3 is set explicitly to put the book AT risk.yaml's max_positions cap (3) so the real guard code computes a genuine refusal, rather than typing a DENY string by hand.",
+    "guard_and_payload": "guard verdict computed fresh by the real RiskGuard.evaluate; no payload is built because the guard refuses (options_orders is never reached for a DENY, matching production)."
+  },
+  "market": {
+    "underlying": "SPY",
+    "spot": 769.35,
+    "realized_vol": 0.0952,
+    "atm_iv": 0.1023,
+    "iv_minus_realized_note": "+0.72pp (implied is ABOVE realized \u2014 options are rich relative to actual movement, which favours SELLING premium, not buying it)"
+  },
+  "candidates": [
+    {
+      "id": "c1",
+      "structure": "bear_call_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "strike": 770.0,
+          "right": "c",
+          "open_interest": 3968,
+          "bid": 4.57,
+          "ask": 4.7
+        },
+        {
+          "side": "buy",
+          "strike": 775.0,
+          "right": "c",
+          "open_interest": 356,
+          "bid": 2.27,
+          "ask": 2.34
+        }
+      ],
+      "net_credit": 2.33,
+      "max_loss": 267.0,
+      "max_profit": 233.0,
+      "breakevens": [
+        772.33
+      ]
+    },
+    {
+      "id": "c2",
+      "structure": "bear_call_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "strike": 773.0,
+          "right": "c",
+          "open_interest": 158,
+          "bid": 3.15,
+          "ask": 3.22
+        },
+        {
+          "side": "buy",
+          "strike": 778.0,
+          "right": "c",
+          "open_interest": 138,
+          "bid": 1.4,
+          "ask": 1.47
+        }
+      ],
+      "net_credit": 1.75,
+      "max_loss": 325.0,
+      "max_profit": 175.0,
+      "breakevens": [
+        774.75
+      ]
+    },
+    {
+      "id": "c3",
+      "structure": "bear_call_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "strike": 774.0,
+          "right": "c",
+          "open_interest": 199,
+          "bid": 2.66,
+          "ask": 2.8
+        },
+        {
+          "side": "buy",
+          "strike": 779.0,
+          "right": "c",
+          "open_interest": 282,
+          "bid": 1.18,
+          "ask": 1.2
+        }
+      ],
+      "net_credit": 1.54,
+      "max_loss": 346.0,
+      "max_profit": 154.0,
+      "breakevens": [
+        775.54
+      ]
+    },
+    {
+      "id": "c4",
+      "structure": "bear_call_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "strike": 775.0,
+          "right": "c",
+          "open_interest": 356,
+          "bid": 2.27,
+          "ask": 2.34
+        },
+        {
+          "side": "buy",
+          "strike": 780.0,
+          "right": "c",
+          "open_interest": 621,
+          "bid": 0.91,
+          "ask": 1.0
+        }
+      ],
+      "net_credit": 1.35,
+      "max_loss": 365.0,
+      "max_profit": 135.0,
+      "breakevens": [
+        776.35
+      ]
+    },
+    {
+      "id": "c5",
+      "structure": "bull_put_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "strike": 735.0,
+          "right": "p",
+          "open_interest": 254,
+          "bid": 0.22,
+          "ask": 0.23
+        },
+        {
+          "side": "buy",
+          "strike": 730.0,
+          "right": "p",
+          "open_interest": 216,
+          "bid": 0.17,
+          "ask": 0.18
+        }
+      ],
+      "net_credit": 0.05,
+      "max_loss": 495.0,
+      "max_profit": 5.0,
+      "breakevens": [
+        734.95
+      ]
+    },
+    {
+      "id": "c6",
+      "structure": "bull_put_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "strike": 740.0,
+          "right": "p",
+          "open_interest": 230,
+          "bid": 0.34,
+          "ask": 0.35
+        },
+        {
+          "side": "buy",
+          "strike": 735.0,
+          "right": "p",
+          "open_interest": 254,
+          "bid": 0.22,
+          "ask": 0.23
+        }
+      ],
+      "net_credit": 0.12,
+      "max_loss": 488.0,
+      "max_profit": 12.0,
+      "breakevens": [
+        739.88
+      ]
+    },
+    {
+      "id": "c7",
+      "structure": "bull_put_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "strike": 742.0,
+          "right": "p",
+          "open_interest": 130,
+          "bid": 0.39,
+          "ask": 0.4
+        },
+        {
+          "side": "buy",
+          "strike": 737.0,
+          "right": "p",
+          "open_interest": 102,
+          "bid": 0.25,
+          "ask": 0.26
+        }
+      ],
+      "net_credit": 0.14,
+      "max_loss": 486.0,
+      "max_profit": 14.0,
+      "breakevens": [
+        741.86
+      ]
+    },
+    {
+      "id": "c8",
+      "structure": "bull_put_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "strike": 755.0,
+          "right": "p",
+          "open_interest": 916,
+          "bid": 1.11,
+          "ask": 1.15
+        },
+        {
+          "side": "buy",
+          "strike": 750.0,
+          "right": "p",
+          "open_interest": 282,
+          "bid": 0.71,
+          "ask": 0.74
+        }
+      ],
+      "net_credit": 0.4,
+      "max_loss": 459.5,
+      "max_profit": 40.5,
+      "breakevens": [
+        754.6
+      ]
+    },
+    {
+      "id": "c9",
+      "structure": "long_straddle",
+      "dte": 13,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "buy",
+          "strike": 769.0,
+          "right": "c",
+          "open_interest": 817,
+          "bid": 6.47,
+          "ask": 7.02
+        },
+        {
+          "side": "buy",
+          "strike": 769.0,
+          "right": "p",
+          "open_interest": 1062,
+          "bid": 5.27,
+          "ask": 5.46
+        }
+      ],
+      "net_credit": -12.11,
+      "max_loss": 1211.0,
+      "max_profit": Infinity,
+      "breakevens": [
+        756.89,
+        781.11
+      ]
+    },
+    {
+      "id": "c10",
+      "structure": "long_straddle",
+      "dte": 20,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "buy",
+          "strike": 769.0,
+          "right": "c",
+          "open_interest": 4860,
+          "bid": 8.76,
+          "ask": 8.94
+        },
+        {
+          "side": "buy",
+          "strike": 769.0,
+          "right": "p",
+          "open_interest": 3620,
+          "bid": 8.12,
+          "ask": 8.16
+        }
+      ],
+      "net_credit": -16.99,
+      "max_loss": 1698.95,
+      "max_profit": Infinity,
+      "breakevens": [
+        752.01,
+        785.99
+      ]
+    },
+    {
+      "id": "c11",
+      "structure": "long_straddle",
+      "dte": 27,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "buy",
+          "strike": 769.0,
+          "right": "c",
+          "open_interest": 242,
+          "bid": 10.31,
+          "ask": 10.37
+        },
+        {
+          "side": "buy",
+          "strike": 769.0,
+          "right": "p",
+          "open_interest": 724,
+          "bid": 9.52,
+          "ask": 9.57
+        }
+      ],
+      "net_credit": -19.88,
+      "max_loss": 1988.5,
+      "max_profit": Infinity,
+      "breakevens": [
+        749.12,
+        788.88
+      ]
+    },
+    {
+      "id": "c12",
+      "structure": "long_straddle",
+      "dte": 32,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "buy",
+          "strike": 769.0,
+          "right": "c",
+          "open_interest": 581,
+          "bid": 11.05,
+          "ask": 11.41
+        },
+        {
+          "side": "buy",
+          "strike": 769.0,
+          "right": "p",
+          "open_interest": 329,
+          "bid": 10.22,
+          "ask": 10.4
+        }
+      ],
+      "net_credit": -21.54,
+      "max_loss": 2154.0,
+      "max_profit": Infinity,
+      "breakevens": [
+        747.46,
+        790.54
+      ]
+    }
+  ],
+  "chosen_id": "c4",
+  "requested_contracts": 1,
+  "order_date": "2026-08-29",
+  "committee": {
+    "views": [
+      {
+        "role": "vol_analyst",
+        "probability": 0.6,
+        "abstained": false,
+        "abstain_reason": "",
+        "reasoning": "At 9.52% realized vol, 27-day moves average ~20 points; breakeven is only 3.4 points above spot, putting ~40% of realistic outcomes at max loss. Assignment on the 770c (0.65 OTM, 1884 OI) forces an exit in the illiquid 775c (457 OI, 1.14% width), where closing spreads could wipe out the 2.76 credit.",
+        "model": "claude-haiku-4-5",
+        "prompt_cache_file": "2e7a406fc81c2bd8aa7fe9d7427307eeb9a5ceac813357135896be0f6722fbed"
+      },
+      {
+        "role": "bear_adversary",
+        "probability": 0.63,
+        "abstained": false,
+        "abstain_reason": "",
+        "reasoning": "Implied vol 2.27pp above realized with strong put skew makes credit spreads favorable; bull puts (c7\u2013c8) and bear calls (c1) show excellent liquidity and tight spreads, though 20\u201327 DTE limits recovery if markets move against the position.",
+        "model": "claude-haiku-4-5",
+        "prompt_cache_file": "d40d4154487899af67314b2e7f68a0fe5307c1337b6da7624d32d0682707d01a"
+      }
+    ],
+    "aggregate_probability": 0.615,
+    "trader": {
+      "choice_id": "c4",
+      "reasoning": "Both views agree spot likely stays below breakeven given IV over realized, but the adversary's liquidity/breach concern applies specifically to c1's tight 772.33 breakeven and thin 356-OI hedge; c4 keeps the same premium-selling structure with the widest cushion (776.35 breakeven, ~1% away) and the deepest OI on both legs (356/621), better surviving a normal-vol move or forced unwind.",
+      "model": "claude-sonnet-5",
+      "prompt_cache_file": "e2689bbad635142e7e274e5dfae41855dfaa7e41660d57740519282c40e4a746"
+    }
+  },
+  "veto": {
+    "thesis": {
+      "ok": true,
+      "reason": "net delta -15.73 consistent with bear call spread's bearish thesis"
+    },
+    "blind": {
+      "ok": true,
+      "reason": "With realized vol at 9.52% and tight DTE, betting against a 0.73% upside move is reasonable; subdued volatility supports a bearish-to-neutral stance.",
+      "model": "claude-haiku-4-5",
+      "prompt_cache_file": "7989554a5d4b9ef0839b5a8c0775e24e34ba81015b61257bca4e20507aeddba3"
+    }
+  },
+  "portfolio_state": {
+    "open_positions": 3,
+    "net_delta": -6.0,
+    "net_vega": 18.0,
+    "daily_realized_pnl": -120.0,
+    "consecutive_losses": 0,
+    "new_today_by_underlying": {
+      "AAPL": 1,
+      "MSFT": 1,
+      "TSLA": 1
+    }
+  },
+  "recorded_outcome": {
+    "chosen_intent": {
+      "underlying": "SPY",
+      "structure": "bear_call_spread",
+      "dte": 10,
+      "contracts": 1,
+      "legs": [
+        {
+          "side": "sell",
+          "right": "c",
+          "strike": 775.0,
+          "bid": 2.27,
+          "ask": 2.34,
+          "open_interest": 356,
+          "symbol": "SPY260908C00775000"
+        },
+        {
+          "side": "buy",
+          "right": "c",
+          "strike": 780.0,
+          "bid": 0.91,
+          "ask": 1.0,
+          "open_interest": 621,
+          "symbol": "SPY260908C00780000"
+        }
+      ],
+      "net_credit": 1.35,
+      "max_loss": 365.0,
+      "max_profit": 135.0,
+      "breakevens": [
+        776.35
+      ]
+    },
+    "thesis": {
+      "ok": true,
+      "reason": "net delta -15.73 consistent with bear call spread's bearish thesis"
+    },
+    "position_delta": -15.7332,
+    "position_vega": -13.4386,
+    "guard": {
+      "decision": "DENY",
+      "reason": "At max_positions (3/3)",
+      "approved_contracts": 0
+    },
+    "payload": null
+  }
+}
