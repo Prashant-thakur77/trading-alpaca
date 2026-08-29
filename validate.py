@@ -17,6 +17,30 @@ from pathlib import Path
 from merkle import compute_artifact_merkle
 
 VALIDATION_DIR = Path(__file__).parent / "validation"
+WALKFORWARD_PATH = VALIDATION_DIR / "walkforward.json"
+
+
+def load_walkforward_results() -> dict:
+    """Load computed walk-forward results, if a run has produced any.
+
+    Returns {"available": False, ...} when none exist. This report never
+    prints a performance figure that was not computed from real bars — an
+    absent number is reported as absent.
+    """
+    if not WALKFORWARD_PATH.exists():
+        return {
+            "available": False,
+            "note": "No walk-forward run on record. Run: make walkforward",
+        }
+    try:
+        data = json.loads(WALKFORWARD_PATH.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        return {"available": False, "note": f"Walk-forward results unreadable: {e}"}
+
+    data["available"] = bool(data.get("symbols"))
+    if not data["available"]:
+        data["note"] = "Walk-forward file present but contains no symbol results."
+    return data
 
 ARTIFACT_FILES = {
     "trade_intents": VALIDATION_DIR / "trade_intents.json",
@@ -182,26 +206,14 @@ def generate_report(as_json: bool = False) -> dict:
         "tradeIntents": ti_analysis,
         "riskChecks": rc_analysis,
         "strategyCheckpoints": sc_analysis,
-        "judgingAlignment": {
-            "riskAdjustedReturns": {
-                "expectancy": "+0.61R per trade (OOS)",
-                "profitFactor": 3.79,
-                "oosWinRate": "82.2%",
-                "tradeCount": 366,
-            },
-            "drawdownControl": {
-                "maxOosDrawdown": "-8.7%",
-                "riskLayers": rc_analysis.get("layers", 5),
-                "rejectionRate": f"{rc_analysis.get('rejectionRate', 0)}%",
-                "note": "Active risk engagement — not rubber-stamping",
-            },
-            "validationQuality": {
-                "totalArtifacts": total_records,
-                "wfoWindows": 8,
-                "wfoPeriod": "360 days (IS=90d, OOS=30d)",
-                "liveValidation": "Paper trading confirms OOS results",
-                "auditTrail": "Every decision logged with full context",
-            },
+        "walkForward": load_walkforward_results(),
+        "drawdownControl": {
+            "riskLayers": rc_analysis.get("layers", 5),
+            "rejectionRate": f"{rc_analysis.get('rejectionRate', 0)}%",
+        },
+        "validationQuality": {
+            "totalArtifacts": total_records,
+            "auditTrail": "Every decision logged with full context",
         },
     }
 
@@ -262,17 +274,32 @@ def generate_report(as_json: bool = False) -> dict:
     print(f"  Routing version:    {sc_analysis.get('routingVersion', '')}")
 
     print(f"\n{'─'*70}")
-    print(f"  JUDGING CRITERIA ALIGNMENT")
+    print(f"  WALK-FORWARD OUT-OF-SAMPLE RESULTS")
     print(f"{'─'*70}")
-    ja = report["judgingAlignment"]
-    print(f"\n  Risk-Adjusted Returns:")
-    for k, v in ja["riskAdjustedReturns"].items():
-        print(f"    {k:20s} {v}")
-    print(f"\n  Drawdown Control:")
-    for k, v in ja["drawdownControl"].items():
+    wf = report["walkForward"]
+    if not wf.get("available"):
+        # Never print a performance number we have not computed.
+        print(f"  {wf.get('note', 'No walk-forward results available.')}")
+    else:
+        print(f"  Generated: {wf.get('generated_at', '')}")
+        print(f"  Windows:   IS={wf.get('is_bars')} bars / OOS={wf.get('oos_bars')} bars\n")
+        print(f"  {'symbol':8s} {'windows':>8s} {'trades':>7s} {'win%':>7s} "
+              f"{'expR':>7s} {'PF':>7s} {'maxDD_R':>8s}")
+        for sym, r in wf.get("symbols", {}).items():
+            o = r.get("oos", {})
+            pf = o.get("profit_factor", 0.0)
+            pf_s = "inf" if pf == float("inf") else f"{pf:.2f}"
+            print(f"  {sym:8s} {r.get('windows', 0):8d} {o.get('trades', 0):7d} "
+                  f"{o.get('win_rate', 0):7.1f} {o.get('expectancy_r', 0):7.2f} "
+                  f"{pf_s:>7s} {o.get('max_drawdown_r', 0):8.2f}")
+
+    print(f"\n{'─'*70}")
+    print(f"  DRAWDOWN CONTROL")
+    print(f"{'─'*70}")
+    for k, v in report["drawdownControl"].items():
         print(f"    {k:20s} {v}")
     print(f"\n  Validation Quality:")
-    for k, v in ja["validationQuality"].items():
+    for k, v in report["validationQuality"].items():
         print(f"    {k:20s} {v}")
     print()
 
