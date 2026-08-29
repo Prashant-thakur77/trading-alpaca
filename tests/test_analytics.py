@@ -6,6 +6,7 @@ per-contract scaling are load-bearing, not cosmetic.
 import math
 import os
 import sys
+from datetime import date, timedelta
 
 import pandas as pd
 import pytest
@@ -18,7 +19,9 @@ from analytics import (
     greeks,
     OptionGreeks,
     time_to_expiry_years,
+    atm_implied_vol,
 )
+from candidate_builder import OptionQuote
 
 
 def _bars(closes: list[float]) -> pd.DataFrame:
@@ -199,3 +202,75 @@ class TestPositionGreeks:
         assert implied_vol(put.mid, 450.0, 400.0, t, "p") is not None  # priceable
 
         assert position_greeks(straddle, spot=450.0) is None
+
+
+# ---- atm_implied_vol: ATM IV as a property of the MARKET ---------------
+#
+# committee/snapshot.py used to derive "ATM implied vol" from whichever
+# candidates a caller happened to surface. On a real SPY chain, surfacing
+# only bear call spreads sampled only OTM calls — which sit lower on the
+# vol skew — and biased the estimate down enough to flip the committee's
+# entire regime call (cheap-vol / buy-premium vs rich-vol / sell-premium)
+# with the market never moving. This helper instead reads the chain's own
+# contracts nearest spot, independent of any candidate construction.
+
+def _quote(strike, right, bid, ask, dte=30, oi=500):
+    expiry = date.today() + timedelta(days=dte)
+    return OptionQuote(
+        symbol=f"SPY{expiry:%y%m%d}{right.upper()}{int(strike*1000):08d}",
+        underlying="SPY", strike=strike, expiry=expiry, right=right,
+        bid=bid, ask=ask, open_interest=oi,
+    )
+
+
+class TestAtmImpliedVol:
+    def test_picks_the_strike_nearest_spot_not_the_chain_extremes(self):
+        from vollib.black_scholes import black_scholes
+        spot, t = 450.0, time_to_expiry_years(30)
+        true_vol = 0.20
+        near_call_px = black_scholes("c", spot, 450.0, t, 0.045, true_vol)
+        near_put_px = black_scholes("p", spot, 450.0, t, 0.045, true_vol)
+
+        chain = [
+            # Deep extremes: if these leaked in, the answer would be wildly
+            # different (or fail to solve at all near intrinsic).
+            _quote(300.0, "p", 0.01, 0.02),
+            _quote(700.0, "c", 0.01, 0.02),
+            # The true ATM pair.
+            _quote(450.0, "c", near_call_px, near_call_px),
+            _quote(450.0, "p", near_put_px, near_put_px),
+        ]
+        result = atm_implied_vol(chain, spot)
+        assert result == pytest.approx(true_vol, abs=1e-3)
+
+    def test_averages_call_and_put_at_the_same_strike(self):
+        chain = [_quote(450.0, "c", 12.0, 12.2), _quote(450.0, "p", 11.0, 11.2)]
+        call_iv = implied_vol(12.1, 450.0, 450.0, time_to_expiry_years(30), "c")
+        put_iv = implied_vol(11.1, 450.0, 450.0, time_to_expiry_years(30), "p")
+        assert atm_implied_vol(chain, 450.0) == pytest.approx(
+            (call_iv + put_iv) / 2, abs=1e-9
+        )
+
+    def test_prefers_the_expiry_nearest_dte_target(self):
+        spot = 450.0
+        far_dte, near_dte = 45, 30
+        # A far-DTE ATM pair priced at a different (wrong-if-picked) vol.
+        chain = [
+            _quote(450.0, "c", 8.0, 8.2, dte=far_dte),
+            _quote(450.0, "p", 8.0, 8.2, dte=far_dte),
+            _quote(450.0, "c", 12.0, 12.2, dte=near_dte),
+            _quote(450.0, "p", 11.0, 11.2, dte=near_dte),
+        ]
+        expected = atm_implied_vol(
+            [q for q in chain if q.dte == near_dte], spot
+        )
+        assert atm_implied_vol(chain, spot, dte_target=30) == pytest.approx(expected)
+
+    def test_empty_chain_returns_none(self):
+        assert atm_implied_vol([], 450.0) is None
+
+    def test_chain_where_no_iv_solves_returns_none(self):
+        # Zero-priced quotes: mid is 0, so no positive vol solves for either
+        # leg — the fail-closed "no data" case, not a crash or a guess.
+        chain = [_quote(450.0, "c", 0.0, 0.0), _quote(450.0, "p", 0.0, 0.0)]
+        assert atm_implied_vol(chain, 450.0) is None

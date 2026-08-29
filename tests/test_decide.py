@@ -186,6 +186,20 @@ class TestHappyPath:
         ).hexdigest()
         assert _run(jrnl, candidates=candidates).snapshot_hash == expected
 
+    def test_decide_forwards_atm_iv_to_the_rendered_snapshot(self, jrnl):
+        """The vol-regime signal must come from the MARKET (the chain), not
+        from whichever candidates happened to be built. `decide` must accept
+        `atm_iv` and pass it straight through to `render_snapshot` rather
+        than letting the snapshot recompute it from `candidates`."""
+        candidates = _candidates()
+        expected = hashlib.sha256(
+            render_snapshot("SPY", SPOT, REALIZED_VOL, candidates,
+                            atm_iv=0.2345).text.encode("utf-8")
+        ).hexdigest()
+        d = decide("SPY", SPOT, REALIZED_VOL, candidates, jrnl,
+                   cache=None, client=FakeClient(), atm_iv=0.2345)
+        assert d.snapshot_hash == expected
+
     def test_the_trader_reasoning_is_carried_through(self, jrnl):
         d = _run(jrnl)
         assert d.trader_reasoning == "best risk/reward"

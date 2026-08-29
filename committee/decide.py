@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 
 from candidate_builder import TradeIntent
 from committee.analysts import ANALYST_MODEL, AnalystView, aggregate, run_analysts
-from committee.snapshot import render_snapshot
+from committee.snapshot import ATM_IV_NOT_SUPPLIED, render_snapshot
 from committee.trader import TRADER_MODEL, choose
 from committee.veto import BLIND_REVIEW_MODEL, blind_review, thesis_check
 from llm.client import LLMResponse, call_claude, prompt_hash
@@ -191,7 +191,7 @@ def _cached_client(client, cache, model: str):
 
 def decide(underlying: str, spot: float, realized_vol: float,
            candidates: list[TradeIntent], journal, cache=None,
-           client=call_claude) -> CommitteeDecision:
+           client=call_claude, atm_iv=ATM_IV_NOT_SUPPLIED) -> CommitteeDecision:
     """Run one committee cycle. Never raises; abstains instead.
 
     `client` is `callable(prompt, model=...) -> LLMResponse`, defaulting to
@@ -199,10 +199,17 @@ def decide(underlying: str, spot: float, realized_vol: float,
     role, because the roles deliberately run on different models (Haiku for
     the analysts and the blind reviewer, Sonnet for the trader) and a single
     pre-bound client would silently collapse that split.
+
+    `atm_iv` is the market's ATM implied vol — the analysts' primary
+    vol-regime signal — and is passed straight through to `render_snapshot`.
+    It must come from `analytics.atm_implied_vol(chain, spot)`, computed once
+    from the full option chain, never re-derived from `candidates` (see
+    `committee.snapshot.render_snapshot` for why that biased the regime
+    call). Omitting it falls back to that old, selection-dependent estimate.
     """
     try:
         return _decide_inner(underlying, spot, realized_vol, candidates,
-                             journal, cache, client)
+                             journal, cache, client, atm_iv)
     except Exception as e:  # noqa: BLE001 - fail closed, always
         reason = f"committee raised {type(e).__name__}: {e}"
         logger.error("Committee cycle failed: %s", reason, exc_info=True)
@@ -218,9 +225,10 @@ def decide(underlying: str, spot: float, realized_vol: float,
 
 
 def _decide_inner(underlying, spot, realized_vol, candidates, journal, cache,
-                  client) -> CommitteeDecision:
+                  client, atm_iv=ATM_IV_NOT_SUPPLIED) -> CommitteeDecision:
     candidates = list(candidates)
-    snapshot = render_snapshot(underlying, spot, realized_vol, candidates)
+    snapshot = render_snapshot(underlying, spot, realized_vol, candidates,
+                               atm_iv=atm_iv)
     snapshot_hash = hashlib.sha256(snapshot.text.encode("utf-8")).hexdigest()
 
     _record(journal, "snapshot", {

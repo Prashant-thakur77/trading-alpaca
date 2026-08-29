@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from alpaca_cli import AlpacaCLI
 from analytics import (
-    CONTRACT_MULTIPLIER, greeks, implied_vol, position_greeks,
+    CONTRACT_MULTIPLIER, atm_implied_vol, greeks, implied_vol, position_greeks,
     realized_volatility, time_to_expiry_years,
 )
 from committee.decide import ABSTAIN, NOT_RUN, CommitteeDecision
@@ -372,14 +372,23 @@ def best_by_credit_ratio(candidates: list):
     return max(candidates, key=lambda c: c.net_credit / max(c.max_loss, 1e-9))
 
 
-def _default_committee(underlying, spot, realized_vol, candidates, journal):
-    """The production committee: `committee.decide.decide` with the on-disk
-    prompt cache attached. Kept as a named function so `main` can take an
-    injected committee in tests without the suite ever touching the network
-    or creating a cache directory in the repo."""
-    from llm.cache import PromptCache
-    return committee_decide(underlying, spot, realized_vol, candidates, journal,
-                            cache=PromptCache(PROMPT_CACHE_DIR))
+def _make_default_committee(atm_iv):
+    """Build the production committee: `committee.decide.decide` with the
+    on-disk prompt cache attached, and `atm_iv` bound in by closure.
+
+    `run_committee` (below) invokes every committee — injected test doubles
+    included — as `committee(underlying, spot, realized_vol, candidates,
+    journal)`. Adding `atm_iv` as a 6th positional/keyword argument there
+    would break every test double written against that 5-arg shape. Binding
+    it via closure instead keeps the shared call surface untouched while
+    still carrying the chain-derived ATM IV (computed once in `main`, before
+    the committee runs) into `committee_decide`.
+    """
+    def _default_committee(underlying, spot, realized_vol, candidates, journal):
+        from llm.cache import PromptCache
+        return committee_decide(underlying, spot, realized_vol, candidates, journal,
+                                cache=PromptCache(PROMPT_CACHE_DIR), atm_iv=atm_iv)
+    return _default_committee
 
 
 def _failed_committee(reason: str) -> CommitteeDecision:
@@ -603,6 +612,14 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
         return _abstain(journal, "no candidate passed the liquidity gate",
                         {"underlying": symbol}, args.dry_run)
 
+    # ATM IV must be a property of the market (the whole chain), never of
+    # which candidates happened to be built or survive the committee's
+    # surfacing cap — see committee/snapshot.py's render_snapshot docstring
+    # for the regime-flip this caused when it was candidate-derived.
+    market_atm_iv = atm_implied_vol(chain, spot)
+    print(f"  ATM IV (chain-derived, ~30 DTE): "
+          f"{f'{market_atm_iv * 100:.2f}%' if market_atm_iv is not None else 'unavailable'}")
+
     # ── selection: the committee proposes, RiskGuard disposes ──
     if args.no_llm:
         print("  mode: DETERMINISTIC (--no-llm) — no LLM in the loop; "
@@ -612,7 +629,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
         print("  mode: LLM COMMITTEE — vol_analyst + bear_adversary -> trader "
               "-> thesis veto + blind veto")
         decision = run_committee(
-            committee or _default_committee, symbol, spot,
+            committee or _make_default_committee(market_atm_iv), symbol, spot,
             realized_volatility(bars), candidates,
             # A dry run is a rehearsal and stays out of the judged chain, the
             # same rule `_abstain(dry_run=True)` already follows. In a live

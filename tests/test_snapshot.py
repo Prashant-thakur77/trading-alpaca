@@ -346,3 +346,79 @@ def test_a_scarce_structure_does_not_starve_the_others_of_slots():
     assert counts["long_straddle"] == 1
     assert counts["bull_put_spread"] == 4
     assert counts["bear_call_spread"] == 4
+
+
+# ---- ATM IV must be a property of the MARKET, not of candidate selection --
+#
+# render_snapshot used to derive IMPLIED_VOL_ATM from the CAPPED candidate
+# list it was about to render. That made the number a function of which
+# candidates happened to be surfaced rather than of the market: on one
+# unchanged SPY chain (same spot, same bars, same session), surfacing only
+# bear call spreads (all OTM calls, which sit low on the vol skew) produced
+# "IV -0.69pp below realized"; including straddles too flipped it to "+0.72pp
+# above realized" -- the committee's entire regime call reversed although the
+# market never moved. The caller now computes atm_iv once from the full
+# chain (analytics.atm_implied_vol) and supplies it explicitly.
+
+def test_supplied_atm_iv_is_rendered_verbatim_not_recomputed_from_candidates():
+    snap = render_snapshot("SPY", 500.0, 0.18, [_bull_put(495, 490)], atm_iv=0.25)
+    assert "IMPLIED_VOL_ATM: 25.00%" in snap.text
+
+
+def test_same_atm_iv_line_for_different_candidate_sets_from_the_same_chain():
+    """THE key regression test. Two different surfaced candidate sets built
+    from the same chain, given the same supplied atm_iv, must render a
+    byte-identical IMPLIED_VOL_ATM (and IV_MINUS_REALIZED) line. Before the
+    fix this line was a function of `candidates` and would differ."""
+    bear_calls_only = [_bear_call(510, 515), _bear_call(520, 525)]
+    with_a_straddle = [_bear_call(510, 515), _straddle(500)]
+
+    a = render_snapshot("SPY", 500.0, 0.18, bear_calls_only, atm_iv=0.1952)
+    b = render_snapshot("SPY", 500.0, 0.18, with_a_straddle, atm_iv=0.1952)
+
+    line_a = [l for l in a.text.splitlines() if l.startswith("IMPLIED_VOL_ATM:")][0]
+    line_b = [l for l in b.text.splitlines() if l.startswith("IMPLIED_VOL_ATM:")][0]
+    assert line_a == line_b == "IMPLIED_VOL_ATM: 19.52%"
+
+    spread_a = [l for l in a.text.splitlines() if l.startswith("IV_MINUS_REALIZED:")][0]
+    spread_b = [l for l in b.text.splitlines() if l.startswith("IV_MINUS_REALIZED:")][0]
+    assert spread_a == spread_b
+
+
+def test_atm_iv_none_supplied_renders_unavailable_even_though_candidates_solve():
+    """Explicitly supplying atm_iv=None means the MARKET computation could
+    not establish one. It must render `unavailable`, never silently fall
+    back to the (selection-dependent) candidate-derived estimate -- doing
+    that would resurrect exactly the bug being fixed."""
+    snap = render_snapshot("SPY", 500.0, 0.18, [_bull_put(495, 490)], atm_iv=None)
+    assert "IMPLIED_VOL_ATM: unavailable" in snap.text
+    assert "IV_MINUS_REALIZED: unavailable" in snap.text
+
+
+def test_omitting_atm_iv_falls_back_to_the_candidate_derived_estimate(caplog):
+    """Backward compatibility: an OMITTED atm_iv (as opposed to an explicit
+    None) keeps the pre-fix behaviour so no existing caller crashes -- but it
+    must log a warning that the fallback is selection-dependent."""
+    import logging
+    from analytics import implied_vol, time_to_expiry_years
+
+    with caplog.at_level(logging.WARNING, logger="committee.snapshot"):
+        snap = render_snapshot("SPY", 500.0, 0.18, [_bull_put(495, 490)])
+
+    expected = implied_vol(2.50, 500.0, 495.0, time_to_expiry_years(30), "p")
+    assert f"IMPLIED_VOL_ATM: {expected * 100:.2f}%" in snap.text
+    assert any("selection-dependent" in r.message for r in caplog.records)
+
+
+def test_render_is_deterministic_with_atm_iv_supplied():
+    candidates = [_bull_put(495, 490), _bear_call(510, 515)]
+    a = render_snapshot("SPY", 500.0, 0.18, candidates, atm_iv=0.21)
+    b = render_snapshot("SPY", 500.0, 0.18, candidates, atm_iv=0.21)
+    assert a.text == b.text
+
+
+def test_shuffling_candidates_does_not_change_the_atm_iv_line_when_supplied():
+    candidates = [_bull_put(495, 490), _bear_call(510, 515), _straddle(500)]
+    baseline = render_snapshot("SPY", 500.0, 0.18, candidates, atm_iv=0.30)
+    shuffled = render_snapshot("SPY", 500.0, 0.18, list(reversed(candidates)), atm_iv=0.30)
+    assert baseline.text == shuffled.text

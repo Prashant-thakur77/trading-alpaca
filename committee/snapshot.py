@@ -25,10 +25,13 @@ decision variable for premium selling. Where no IV solves, the field says
 `unavailable` rather than disappearing: an analyst must be able to tell "no
 data" from "low vol".
 """
+import logging
 from dataclasses import dataclass, field
 
 import analytics
 from candidate_builder import TradeIntent
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -172,13 +175,21 @@ def _render_candidate(cid: str, intent: TradeIntent, spot: float) -> str:
     )
 
 
-def _atm_implied_vol(candidates: list[TradeIntent], spot: float) -> float | None:
-    """IV of the leg closest to the money across the rendered candidates.
+def _candidate_derived_atm_iv(candidates: list[TradeIntent], spot: float) -> float | None:
+    """FALLBACK ONLY — IV of the leg closest to the money among the
+    candidates this call happened to be given.
 
-    That single number — not a skew-weighted average over every strike — is
-    what "implied volatility" means when set against realized vol, so it is
-    what the header compares. Ties are broken on (strike, right) so the choice
-    is deterministic. None when no leg's IV solves.
+    This is the selection-dependent estimate `render_snapshot` used
+    unconditionally until it was found to bias the vol-regime call: on one
+    unchanged SPY chain, surfacing only bear call spreads (all OTM calls,
+    low on the vol skew) put this at -0.69pp vs realized, while including a
+    straddle too flipped it to +0.72pp — same market, opposite regime call.
+    `analytics.atm_implied_vol`, computed once from the full chain, is now
+    the real source; this only runs when a caller omits `atm_iv` entirely
+    (see `render_snapshot`), to keep old callers from crashing.
+
+    Ties are broken on (strike, right) so the choice is deterministic. None
+    when no leg's IV solves.
     """
     legs = [(abs(leg.quote.strike - spot), leg.quote.strike, leg.quote.right,
              leg, intent.dte)
@@ -228,12 +239,21 @@ def _iv_minus_realized(atm_iv: float | None, realized_vol: float) -> str:
             f"not selling it)")
 
 
+# Sentinel distinguishing "caller did not pass atm_iv at all" (legacy call
+# site — fall back, with a warning) from "caller passed atm_iv=None" (the
+# market computation ran and could not establish one — render `unavailable`,
+# and NEVER fall back to the selection-dependent estimate, which would
+# resurrect the exact bug this sentinel exists to prevent).
+ATM_IV_NOT_SUPPLIED = object()
+
+
 def render_snapshot(
     underlying: str,
     spot: float,
     realized_vol: float,
     candidates: list[TradeIntent],
     max_candidates: int = 12,
+    atm_iv: float | None = ATM_IV_NOT_SUPPLIED,
 ) -> Snapshot:
     """Render one deterministic `Snapshot` for the given cycle inputs.
 
@@ -245,6 +265,17 @@ def render_snapshot(
     the committee sees, and the selection is reproducible regardless of the
     order the caller's candidate list happened to be built in.
 
+    `atm_iv` is the ATM implied vol the header reports and compares against
+    `realized_vol` — the analysts' primary vol-regime signal. It MUST be a
+    property of the market, not of `candidates`: pass
+    `analytics.atm_implied_vol(chain, spot)`, computed once from the full
+    option chain, not from whichever candidates happened to be built or
+    survive the `max_candidates` cap. Pass `None` when the market computation
+    itself could not establish one — that renders `unavailable`. Omitting
+    the argument entirely falls back to the old candidate-derived estimate
+    (logging a warning that it is selection-dependent), purely so a caller
+    that has not been updated yet does not crash.
+
     Returns both the text the analysts see and the id -> TradeIntent mapping
     that names what each id actually is (see `Snapshot`).
     """
@@ -253,7 +284,14 @@ def render_snapshot(
     capped = _stratified_cap(ordered, max_candidates)
     by_id = {f"c{i}": intent for i, intent in enumerate(capped, start=1)}
 
-    atm_iv = _atm_implied_vol(capped, spot)
+    if atm_iv is ATM_IV_NOT_SUPPLIED:
+        logger.warning(
+            "render_snapshot called without atm_iv — falling back to the "
+            "candidate-derived estimate, which is selection-dependent (it "
+            "varies with which candidates were surfaced, not the market). "
+            "Callers should pass analytics.atm_implied_vol(chain, spot)."
+        )
+        atm_iv = _candidate_derived_atm_iv(capped, spot)
     lines = [
         f"UNDERLYING: {underlying}",
         f"SPOT: {_money(spot)}",

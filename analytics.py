@@ -96,6 +96,67 @@ def implied_vol(
     return float(iv)
 
 
+def atm_implied_vol(chain, spot: float, dte_target: int = 30) -> float | None:
+    """Market ATM implied vol: mean of call and put IV at the strike and
+    expiry nearest (spot, dte_target).
+
+    This must be a property of the MARKET, never of which candidates a
+    caller happened to construct or choose to surface. Deriving "ATM IV"
+    from surfaced candidates instead (as committee/snapshot.py once did) let
+    candidate SELECTION swing the number: on one unchanged SPY chain,
+    surfacing only bear call spreads sampled only OTM calls -- which sit
+    lower on the vol skew -- and biased the estimate down enough to flip the
+    committee's regime call (buy premium vs sell premium) even though the
+    market never moved. Reading the chain's own contracts nearest spot,
+    independent of any candidate list, removes that dependency.
+
+    Averaging the call and the put at the same strike is more robust than
+    either alone: put-call parity says they should imply similar vol at a
+    given strike/expiry, so the mean cancels idiosyncratic noise (a stale
+    quote, a wide market) in either single leg.
+
+    Returns None -- never a guess -- when the chain is empty or neither leg
+    at the nearest strike/expiry can be priced (`analytics.implied_vol`
+    already fails closed on a quote below intrinsic or a zero bid).
+    """
+    if not chain or spot <= 0:
+        return None
+
+    by_expiry: dict = {}
+    for q in chain:
+        by_expiry.setdefault(q.expiry, []).append(q)
+    if not by_expiry:
+        return None
+
+    # Ties broken by the expiry date itself so the choice is deterministic.
+    target_expiry = min(
+        by_expiry, key=lambda e: (abs(by_expiry[e][0].dte - dte_target), e)
+    )
+    quotes = by_expiry[target_expiry]
+    strikes = {q.strike for q in quotes}
+    if not strikes:
+        return None
+    target_strike = min(strikes, key=lambda s: (abs(s - spot), s))
+
+    call = next((q for q in quotes if q.strike == target_strike and q.right == "c"), None)
+    put = next((q for q in quotes if q.strike == target_strike and q.right == "p"), None)
+
+    t = time_to_expiry_years(quotes[0].dte)
+    ivs = []
+    if call is not None:
+        iv = implied_vol(call.mid, spot, call.strike, t, "c")
+        if iv is not None:
+            ivs.append(iv)
+    if put is not None:
+        iv = implied_vol(put.mid, spot, put.strike, t, "p")
+        if iv is not None:
+            ivs.append(iv)
+
+    if not ivs:
+        return None
+    return sum(ivs) / len(ivs)
+
+
 def greeks(
     flag: str,
     spot: float,
