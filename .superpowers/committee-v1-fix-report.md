@@ -251,3 +251,46 @@ in < 0.7s), plus `test_run_analysts_returns_both_views_in_a_stable_order` and
 389 at baseline → **429** passing. No network in the
 suite; the only real `claude -p` calls were the 4 in the Finding 4
 acceptance run, executed outside pytest.
+
+---
+
+## Controller live verification (2026-08-29, real claude calls)
+
+Suite 429 green. Live SPY, spot 769.35, 632 candidates, 12 surfaced.
+
+    IMPLIED_VOL_ATM: 8.83%   IV_MINUS_REALIZED: -0.69pp   (I4 fixed)
+    Snapshot(text, candidates) with 12 ids                 (I3 fixed)
+    vol_analyst     p=0.66   (was: ABSTAIN every time)
+    bear_adversary  p=0.38
+    aggregate 0.52
+    PICK: ABSTAIN — "the two analysts materially disagree (0.66 vs 0.38)"
+
+All fixes confirmed working against real models and real data.
+
+### OPEN QUESTION — the vol analyst may have its sign inverted
+
+Both analysts read the SAME fact and drew OPPOSITE conclusions:
+
+  vol_analyst:    "IV trades 69bps cheaper than realized volatility — a
+                   material structural edge for short premium"
+  bear_adversary: "realized vol is elevated 69bp above ATM implied, signaling
+                   the market underpriced volatility"
+
+bear_adversary appears to be right. IV (8.83%) BELOW realized (9.52%) means
+options are cheap relative to how much the underlying actually moves — so a
+premium SELLER collects less than the realized movement warrants. That is an
+argument AGAINST short premium, not for it. The vol analyst reached the
+opposite conclusion from the same number.
+
+Possible causes, to investigate before Monday:
+  1. The prompt may not state which direction of IV_MINUS_REALIZED favours
+     selling, leaving the model to guess.
+  2. The field name/sign may be ambiguous — "IV_MINUS_REALIZED: -0.69pp"
+     could be read either way without a stated convention.
+
+Notably the SYSTEM handled it correctly: the trader saw the disagreement and
+abstained rather than trading on a contested view. This is also precisely what
+the Brier calibration loop exists to fix — an analyst that reasons wrongly
+gets demoted by its own track record. It is a genuine demo asset, but the
+prompt should still state the convention explicitly rather than relying on
+calibration to paper over an avoidable ambiguity.
