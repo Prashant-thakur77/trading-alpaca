@@ -33,10 +33,7 @@ from risk_manager import RiskManager
 from opus_analyst import OpusAnalyst, PositionReview
 
 # Extracted modules
-from agent_state import (
-    save_state, load_state, post_reputation,
-    post_onchain_intent, post_onchain_checkpoint,
-)
+from agent_state import save_state, load_state
 from agent_signals import (
     ai_review_signals, write_validation_artifacts,
     write_scan_checkpoint, update_validation_outcome,
@@ -108,15 +105,6 @@ class KrakenTradingAgent:
     def _update_validation_outcome(self, pair, reason, pnl):
         update_validation_outcome(self, pair, reason, pnl)
 
-    def _post_onchain_intent(self, pair, action, amount_usd):
-        post_onchain_intent(pair, action, amount_usd)
-
-    def _post_onchain_checkpoint(self, data, score, notes):
-        post_onchain_checkpoint(data, score, notes)
-
-    def _post_reputation(self, reason):
-        post_reputation(self, reason)
-
     def scan_and_trade(self):
         """Run a full strategy scan and execute qualifying signals.
 
@@ -183,7 +171,6 @@ class KrakenTradingAgent:
             for event in exit_events:
                 self.risk.register_close(event["pair"], event["pnl"], event["reason"])
                 self._update_validation_outcome(event["pair"], event["reason"], event["pnl"])
-                self._post_onchain_intent(event["pair"], "SELL", abs(event.get("pnl", 0)))
                 self._log_trade({
                     "type": "close",
                     "pair": event["pair"],
@@ -194,7 +181,6 @@ class KrakenTradingAgent:
                 })
             if exit_events:
                 self._save_state()  # Immediately persist after position changes
-                self._post_reputation("short_exit")
 
         # Execute long signals (skip pairs with conflicting shorts)
         executed = 0
@@ -211,7 +197,6 @@ class KrakenTradingAgent:
             if success:
                 self.risk.register_open(signal.pair, signal.direction)
                 pos_value = signal.entry_price * self.executor.positions.get(signal.pair, signal).volume if signal.pair in self.executor.positions else 0
-                self._post_onchain_intent(signal.pair, "BUY", pos_value)
                 self._log_trade({
                     "type": "open",
                     "pair": signal.pair,
@@ -248,7 +233,6 @@ class KrakenTradingAgent:
             if success:
                 self.risk.register_open(signal.pair, signal.direction)
                 pos_value = signal.entry_price * self.executor.positions.get(signal.pair, signal).volume if signal.pair in self.executor.positions else 0
-                self._post_onchain_intent(signal.pair, "SELL", pos_value)
                 self._log_trade({
                     "type": "open",
                     "pair": signal.pair,
@@ -271,13 +255,6 @@ class KrakenTradingAgent:
         logger.info(f"Executed {executed}/{len(long_signals)} long, {short_executed}/{len(short_signals)} short signals")
         if executed > 0 or short_executed > 0:
             self._save_state()  # Persist new positions immediately
-            # Post scan checkpoint to ValidationRegistry
-            self._post_onchain_checkpoint(
-                {"scan": self.scan_count, "long": executed, "short": short_executed,
-                 "signals": len(signals), "portfolio": portfolio_value},
-                score=min(95, 60 + executed * 10 + short_executed * 5),
-                notes=f"Scan #{self.scan_count}: {executed}L+{short_executed}S of {len(signals)} signals",
-            )
         self.last_full_scan = time.time()
 
     def _ai_review_positions(self) -> list[PositionReview]:
@@ -421,8 +398,6 @@ class KrakenTradingAgent:
                 # Only register full closes in risk manager (affects consecutive loss tracking)
                 self.risk.register_close(event["pair"], event["pnl"], event["reason"])
                 self._update_validation_outcome(event["pair"], event["reason"], event["pnl"])
-                # Submit close intent to RiskRouter (judge bot reads these)
-                self._post_onchain_intent(event["pair"], "SELL", abs(event.get("pnl", 0)))
             self._log_trade({
                 "type": "partial_close" if is_partial else "close",
                 "pair": event["pair"],
@@ -437,15 +412,14 @@ class KrakenTradingAgent:
             ai_reviews = self._ai_review_positions()
             ai_events = self._apply_position_reviews(ai_reviews)
             if ai_events:
-                # CRITICAL: Save state IMMEDIATELY after AI closes positions.
-                # On-chain calls can be slow and cron timeout may kill process.
+                # CRITICAL: Save state IMMEDIATELY after AI closes positions —
+                # cron timeout may kill the process before logging finishes.
                 for event in ai_events:
                     self.risk.register_close(event["pair"], event["pnl"], event["reason"])
                     self._update_validation_outcome(event["pair"], event["reason"], event["pnl"])
                 self._save_state()
-                # Non-critical: on-chain and logging (best-effort after state is safe)
+                # Non-critical: logging (best-effort after state is safe)
                 for event in ai_events:
-                    self._post_onchain_intent(event["pair"], "SELL", abs(event.get("pnl", 0)))
                     self._log_trade({
                         "type": "close",
                         "pair": event["pair"],
@@ -456,16 +430,9 @@ class KrakenTradingAgent:
                     })
             events.extend(ai_events)
 
-        # Persist state and post reputation after closures
+        # Persist state after closures
         if events:
             self._save_state()
-            self._post_reputation("sl_tp_close")
-            self._post_onchain_checkpoint(
-                {"monitor": True, "events": len(events),
-                 "positions_remaining": len(self.executor.positions)},
-                score=min(90, 50 + len(events) * 10),
-                notes=f"Monitor: {len(events)} position events",
-            )
 
         # Emergency check
         if self.risk.check_emergency():
@@ -480,8 +447,6 @@ class KrakenTradingAgent:
                     "reason": event["reason"],
                     "pnl": event["pnl"],
                 })
-            if close_events:
-                self._post_reputation("emergency_close")
 
     async def run_loop(self) -> None:
         """Main agent loop: scan every 4h, monitor every 5min.

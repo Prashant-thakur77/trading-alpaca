@@ -1,8 +1,7 @@
 """
 Configuration — pair mappings, strategy parameters, risk limits
 """
-import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # ── Pair Mapping ──────────────────────────────────────────────
 # Standard pair name → Kraken CLI pair → Kraken API response key
@@ -262,29 +261,6 @@ RISK = RiskConfig()
 INITIAL_BALANCE = 100_000.0  # Paper trading starting balance
 SCAN_INTERVAL_SECONDS = 120  # 2 minutes between position checks (competition sprint)
 FULL_SCAN_INTERVAL_HOURS = 0.5  # Full strategy scan every 30 min (final sprint — 3 days left)
-
-# ── ERC-8004 (Sepolia Testnet) ────────────────────────────────
-# Hackathon SHARED contract addresses (2026-04-06)
-# Leaderboard uses shared contracts only
-HACKATHON_AGENT_REGISTRY = "0x97b07dDc405B0c28B17559aFFE63BdB3632d0ca3"
-HACKATHON_VAULT = "0x0E7CD8ef9743FEcf94f9103033a044caBD45fC90"
-HACKATHON_RISK_ROUTER = "0xd6A6952545FF6E6E6681c2d15C59f9EB8F40FdBC"
-HACKATHON_REPUTATION_REGISTRY = "0x423a9904e39537a9997fbaF0f220d79D7d545763"
-HACKATHON_VALIDATION_REGISTRY = "0x92bF63E5C7Ac6980f237a7164Ab413BE226187F1"
-# ERC-8004 standard singleton (for Agent Card metadata)
-ERC8004_IDENTITY_CONTRACT = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
-ERC8004_REPUTATION_CONTRACT = "0x8004B663056A597Dffe9eCcC1965A193B7388713"
-SEPOLIA_RPC = os.environ.get(
-    "SEPOLIA_RPC", "https://ethereum-sepolia-rpc.publicnode.com"
-)  # Override via .env; set SEPOLIA_RPC=https://sepolia.infura.io/v3/YOUR_KEY for Infura
-SEPOLIA_CHAIN_ID = 11155111
-AGENT_NAME = "Trading Alpaca"
-AGENT_DESCRIPTION = (
-    "AI trading agent with dual-model ensemble (MiniMax M2.7 + Qwen 2.5) "
-    "and OOS-validated multi-strategy engine (82.2% win rate). Features: "
-    "TrendRider EMA+RSI+Volume, BB Squeeze, MACD Divergence with "
-    "regime-adaptive routing and 5-layer risk management."
-)
 
 # ── AI Analyst Configuration ──
 AI_ENABLED = True                     # Master switch for AI analysis

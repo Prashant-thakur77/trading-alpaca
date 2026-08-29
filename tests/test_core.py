@@ -20,10 +20,6 @@ from strategies import (
     ema, rsi, bollinger_bands, atr, macd, adx,
     StrategyEngine, RegimeDetector, MarketRegime, TradeSignal,
 )
-from erc8004 import (
-    generate_agent_card, load_agent_card, save_agent_card,
-    get_live_performance, update_reputation, get_reputation_summary,
-)
 from config import ACTIVE_PAIRS, PAIR_MAP, STRATEGY_PARAMS, BLACKLIST, RISK
 
 
@@ -319,39 +315,6 @@ class TestExecutorSizing:
         assert short_volume == pytest.approx(0.7)
 
 
-# ── ERC-8004 Agent Card Tests ────────────────────────────────
-
-class TestERC8004:
-    def test_agent_card_structure(self):
-        """Agent card should have required ERC-8004 fields."""
-        from erc8004 import generate_agent_card
-        card = generate_agent_card()
-        assert card["type"] == "https://eips.ethereum.org/EIPS/eip-8004#registration-v1"
-        assert card["name"] == "Trading Alpaca"
-        assert card["active"] is True
-        assert "reputation" in card["supportedTrust"]
-        assert len(card["services"]) >= 2
-        assert card["performance"]["strategies"] == 3
-        assert card["performance"]["oosWinRate"] == 82.2
-
-    def test_agent_card_risk_controls(self):
-        """Agent card should expose risk control parameters."""
-        from erc8004 import generate_agent_card
-        card = generate_agent_card()
-        rc = card["riskControls"]
-        assert rc["maxPositionPct"] == 5.0
-        assert rc["maxDailyLossPct"] == 3.0
-        assert rc["maxDrawdownPct"] == 10.0
-        assert rc["maxConcurrentPositions"] == 5
-
-    def test_agent_card_with_pnl_data(self):
-        """Agent card should include livePerformance when pnl_data provided."""
-        from erc8004 import generate_agent_card
-        pnl = {"currentValue": 100500, "unrealizedPnl": 500}
-        card = generate_agent_card(pnl_data=pnl)
-        assert card["livePerformance"]["currentValue"] == 100500
-
-
 # ── Config Validation Tests ──────────────────────────────────
 
 class TestConfig:
@@ -556,28 +519,6 @@ class TestMACDSwingPoints:
         df = engine._compute_indicators(_ohlc_df(35, seed=1))
         result = engine._check_macd_divergence(df, "ETH/USDT", "long")
         assert isinstance(result, bool)
-
-
-# ── ERC-8004 Module Split Tests ──────────────────────────────
-
-class TestERC8004ModuleSplit:
-    def test_facade_exports_card_functions(self):
-        """erc8004.py should re-export all card functions."""
-        assert callable(generate_agent_card)
-        assert callable(save_agent_card)
-        assert callable(load_agent_card)
-        assert callable(get_live_performance)
-
-    def test_facade_exports_chain_functions(self):
-        """erc8004.py should re-export all chain functions."""
-        assert callable(update_reputation)
-        assert callable(get_reputation_summary)
-
-    def test_abi_importable(self):
-        """ABI fragments should be importable from the dedicated module."""
-        from erc8004_abi import IDENTITY_ABI, REPUTATION_ABI
-        assert len(IDENTITY_ABI) >= 3   # register, setAgentURI, tokenURI, event
-        assert len(REPUTATION_ABI) >= 2  # giveFeedback, getSummary
 
 
 # ── Batch Take-Profit Tests ────────────────────────────────

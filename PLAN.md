@@ -1,20 +1,21 @@
 # PLAN.md — build plan (check off as completed)
 
 ## Phase 1 — Sat Aug 29: strip on-chain + dead code, tests green
-- [ ] Delete erc8004.py, erc8004_abi.py, hackathon_abi.py, calc_reputation.py,
+- [x] Delete erc8004.py, erc8004_abi.py, hackathon_abi.py, calc_reputation.py,
       tests/test_merkle_reputation.py
-- [ ] Remove every erc8004/chain import & code path from agent.py, agent_state.py,
+- [x] Remove every erc8004/chain import & code path from agent.py, agent_state.py,
       config.py, tests/test_core.py — delete the code paths, no shipped no-op stubs
-- [ ] Audit merkle.py + validation_writer.py: keep only if free of chain deps
+- [x] Audit merkle.py + validation_writer.py: keep only if free of chain deps
       (repurpose later for journal); otherwise delete with their tests
-- [ ] In tests/, drop only cases testing removed chain code; keep all
+      → both stdlib-only, KEPT (see docs/AUDIT.md)
+- [x] In tests/, drop only cases testing removed chain code; keep all
       strategy/risk/exit tests
-- [ ] Update .env.example: remove Kraken/chain vars, add Alpaca paper-key vars
+- [x] Update .env.example: remove Kraken/chain vars, add Alpaca paper-key vars
       per alpaca-mcp-server README
-- [ ] `python3 -m pytest tests/ -v` fully green, `make test` passes
-- [ ] Write docs/AUDIT.md: deleted / kept / where walk-forward, risk layers,
+- [x] `python3 -m pytest tests/ -v` fully green (74 passed), `make test` passes
+- [x] Write docs/AUDIT.md: deleted / kept / where walk-forward, risk layers,
       dual-model code, Kraken execution live
-- [ ] Commit "phase 1: strip on-chain + dead code, tests green"
+- [x] Commit "phase 1: strip on-chain + dead code, tests green"
 
 ## Phase 2 — Sun Aug 30: Alpaca + options engine + guard + journal (markets closed)
 - [ ] alpaca_data.py: stock bars + option-chain fetch (MCP tools + alpaca-py),

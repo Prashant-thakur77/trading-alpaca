@@ -8,7 +8,6 @@ license = {text = "MIT"}
 dependencies = [
     "numpy==1.26.4",
     "pandas==2.2.2",
-    "web3==6.20.1",
     "requests==2.32.3",
 ]
 
