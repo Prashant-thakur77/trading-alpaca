@@ -69,11 +69,14 @@ literal: an analyst whose predictions score badly loses voting weight.
 - **Fail loud on data, fail soft on the LLM.** A failed market-data fetch stops
   the session; a failed LLM call abstains. Missing data must never become a
   confident neutral opinion.
-- **Two independent Greek sources.** Alpaca supplies Greeks and IV free on the
-  indicative feed for roughly 61% of contracts — `None` exactly where the quote
-  is unpriceable. We reconcile those against our own Black–Scholes solve, and a
-  leg we cannot price forces an abstention rather than contributing partial
-  Greeks that would be wrong in both sign and magnitude.
+- **A leg we cannot price forces an abstention.** Greeks and IV are solved with
+  Black–Scholes (`vollib`) from each leg's mid. When any leg is unpriceable the
+  position Greeks return a sentinel that forces DENY, rather than silently
+  contributing the remaining legs' Greeks — which measured wrong in both sign
+  and magnitude (−22.2 against a true ≈ +12).
+  *(Roadmap: Alpaca publishes its own Greeks and IV free on the indicative feed
+  for ~61% of contracts; reconciling the two sources and flagging divergence is
+  planned, not built.)*
 
 ### Business Value
 
@@ -91,23 +94,38 @@ literal: an analyst whose predictions score badly loses voting weight.
 
 ### Originality
 
-- **The calibration loop.** Each analyst emits a probability, not a verdict.
-  Brier-scored against resolved outcomes, a miscalibrated analyst is demoted and
-  literally loses voting weight. Seeded by replaying the committee over
-  historical walk-forward windows, so it has real scores rather than an empty
-  table.
-- **Pre-mortem as machine-checkable risk.** Before an order, an agent states
-  what would have to be true for the trade to lose — and those statements are
-  compiled into deterministic exit triggers. LLM reasoning becomes an enforced
-  rule rather than a paragraph nobody reads.
-- **Abstentions are first-class.** The counters show trades *not* taken and why,
-  as prominently as trades taken.
+**Built:**
+
+- **Abstention is first-class and load-bearing.** Each analyst emits a
+  *probability*, not a verdict, and an abstaining analyst is excluded from both
+  the numerator and the denominator of the aggregate — "no opinion" never
+  masquerades as neutral. A live cycle abstained because its two analysts
+  materially disagreed (0.66 vs 0.38); another changed the trader's choice from
+  `c1` to `c4` because the adversary flagged c1's thin 356-contract hedge.
+- **An adversary that argues against every trade**, whose objections are
+  recorded in the journal whether or not they prevail.
+- **Every LLM call is content-addressed** (`sha256(model, prompt)`) and cached
+  with its prompt, raw response and parse result. One artifact serves as cost
+  saver, audit record and deterministic replay corpus — a replayed cycle costs
+  $0.00 and reproduces the decision verbatim.
+
+**Planned, not yet built** — listed so this section is not read as shipped:
+
+- *Calibration loop:* Brier-scoring analysts over resolved outcomes so a
+  miscalibrated analyst loses voting weight.
+- *Pre-mortem:* compiling "what would have to be true for this to lose" into
+  deterministic exit triggers.
 
 ### Presentation
 
-- Credential-free judge page with one-click replay of real decisions.
-- `make verify-journal` — anyone can verify the hash chain themselves.
+- `make verify-journal` — anyone can verify the decision chain themselves, with
+  no credentials. Empty, intact and tampered are three distinct outcomes.
+- `make session-dry` runs the entire pipeline against the live chain and shows
+  the committee's reasoning, both vetoes, the guard verdict and the exact wire
+  payload — while sending nothing.
 - Honest limitations stated below rather than omitted.
+- *Planned: a credential-free judge page with one-click replay of recorded
+  decisions.*
 
 ---
 
