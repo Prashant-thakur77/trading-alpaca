@@ -137,9 +137,18 @@ class RiskGuard:
 
     # ── startup ──────────────────────────────────────────────
     def startup_checks(
-        self, is_paper: bool, options_level: int, open_positions: int
+        self,
+        is_paper: bool,
+        options_level: int,
+        open_positions: int,
+        equity: float | None = None,
     ) -> tuple[bool, str]:
-        """Preflight before any session. All must hold or the agent must not run."""
+        """Preflight before any session. All must hold or the agent must not run.
+
+        `equity` is optional: supply it at session start to assert a fresh
+        dedicated account, and omit it mid-session once P&L has legitimately
+        moved the balance.
+        """
         killed, why = self.kill_switch_active()
         if killed:
             return False, why
@@ -154,6 +163,12 @@ class RiskGuard:
             return False, (
                 f"Account has {open_positions} pre-existing position(s); "
                 f"expected a flat account at startup"
+            )
+        if equity is not None and abs(equity - self.config.initial_capital) > 0.01:
+            return False, (
+                f"Account equity ${equity:,.2f} is not the expected fresh "
+                f"${self.config.initial_capital:,.2f} — the submission requires a "
+                f"new dedicated paper account, so reported P&L is attributable"
             )
         return True, ""
 

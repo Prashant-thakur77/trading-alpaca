@@ -252,3 +252,26 @@ class TestStartupChecks:
         ok, err = guard.startup_checks(is_paper=True, options_level=3, open_positions=2)
         assert ok is False
         assert "position" in err.lower()
+
+    def test_accepts_the_expected_starting_equity(self, guard):
+        ok, err = guard.startup_checks(is_paper=True, options_level=3,
+                                       open_positions=0, equity=100_000.0)
+        assert ok is True, err
+
+    def test_refuses_an_account_that_is_not_a_fresh_100k(self, guard):
+        """Hackathon rules require a new dedicated paper account at $100k.
+        A used account means the reported P&L is not attributable to this agent."""
+        ok, err = guard.startup_checks(is_paper=True, options_level=3,
+                                       open_positions=0, equity=87_432.10)
+        assert ok is False
+        assert "equity" in err.lower()
+
+    def test_equity_check_tolerates_sub_cent_drift(self, guard):
+        ok, err = guard.startup_checks(is_paper=True, options_level=3,
+                                       open_positions=0, equity=100_000.004)
+        assert ok is True, err
+
+    def test_equity_check_is_skipped_when_not_supplied(self, guard):
+        """Equity is optional so mid-session checks don't fail once P&L moves."""
+        ok, err = guard.startup_checks(is_paper=True, options_level=3, open_positions=0)
+        assert ok is True, err
