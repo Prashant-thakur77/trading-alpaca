@@ -25,6 +25,7 @@ three things its responsibility and nobody else's:
 import argparse
 import json
 import logging
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -377,7 +378,24 @@ def _abstain(journal, reason: str, detail: dict | None = None,
     return EXIT_OK
 
 
+def _load_dotenv(path: Path) -> None:
+    """Minimal .env loader (mirrors scripts/check_account.py) so `make session`
+    works from a plain shell or a cron entry, where nothing has been exported.
+
+    `setdefault`, so a variable already in the environment always wins.
+    """
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
 def main(argv=None, *, cli=None, data=None, journal=None, guard=None) -> int:
+    _load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     parser = argparse.ArgumentParser(description="Run one options session cycle")
     parser.add_argument("--symbol", default="SPY")
     parser.add_argument("--dry-run", action="store_true", help="Never send an order")
