@@ -281,6 +281,10 @@ def _decide_inner(underlying, spot, realized_vol, candidates, journal, cache,
             "reasoning": view.reasoning,
             "model": view.model,
             "prompt_hash": view.prompt_hash,
+            # The join key calibration.py uses to correlate this prediction
+            # with the cycle's eventual outcome (a later closing entry
+            # carrying the same snapshot_hash). See calibration.py.
+            "snapshot_hash": snapshot_hash,
         })
 
     agg = aggregate(list(views))

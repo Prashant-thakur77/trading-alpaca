@@ -293,6 +293,15 @@ class TestHardRuleFiveJournal:
             assert v["model"] == ANALYST_MODEL
             assert len(v["prompt_hash"]) == 64
 
+    def test_each_analyst_view_entry_carries_the_cycles_snapshot_hash(self, jrnl):
+        # calibration.py correlates an analyst's prediction with its eventual
+        # outcome by grouping journal entries on snapshot_hash — this is the
+        # join key, so it must be on the analyst_view entry, not just on
+        # committee_decision.
+        d = _run(jrnl)
+        views = _payloads(jrnl, "analyst_view")
+        assert all(v["snapshot_hash"] == d.snapshot_hash for v in views)
+
     def test_an_abstaining_analyst_journals_a_null_probability_not_a_zero(self, jrnl):
         """A 0.0 would read as maximum bearishness — the strongest opinion
         there is. An abstention must be unmistakably absent."""
