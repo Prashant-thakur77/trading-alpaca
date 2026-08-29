@@ -39,18 +39,21 @@ flowchart TD
     H --> I
     I --> J[executor<br/>atomic multi-leg order<br/>via the Alpaca CLI]
     J --> K[(hash-chained journal<br/>every prompt, verdict, fill)]
-    K --> L[Brier calibration<br/>demotes miscalibrated analysts]
+    K -.-> L["Brier calibration<br/>(PLANNED — not built)"]
     L -.weights.-> D
     L -.weights.-> E
 
     style B fill:#e8f5e9
     style I fill:#ffebee
     style K fill:#e3f2fd
+    style L fill:#f5f5f5,stroke-dasharray: 5 5,color:#777
 ```
 
 Green is deterministic. **Red is the gate nothing reaches the broker without.**
-Blue is the audit trail. The dotted line is the loop that makes "grades itself"
-literal: an analyst whose predictions score badly loses voting weight.
+Blue is the audit trail. **The dashed grey node is planned and not yet built** —
+the calibration loop that would make "grades itself" literal by demoting an
+analyst whose predictions score badly. Everything drawn with a solid border
+exists and runs today.
 
 ---
 
