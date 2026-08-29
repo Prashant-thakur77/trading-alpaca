@@ -28,7 +28,12 @@ badly calibrated agents → public dashboard with a credential-free /judge page.
    (exception: standalone hashing utilities may be reused for the journal).
 
 ## Inherited layout (audit in Phase 0/1, then follow this disposition)
-KEEP+EXTEND: risk_manager.py (layered risk), validate.py (walk-forward engine),
+CORRECTED 2026-08-29: validate.py is a REPORT GENERATOR, not a walk-forward
+engine. Its "OOS 82.2% / PF 3.79 / 366 trades" figures were hardcoded crypto-era
+literals and have been deleted. The real engine is walkforward.py (Phase 2).
+Never reintroduce a performance number that isn't computed from real bars.
+
+KEEP+EXTEND: risk_manager.py (layered risk), validate.py (artifact reporter),
   indicators.py, ai_backends.py + ai_prompts.py + agent_signals.py +
   opus_analyst.py + chart_analyzer.py (dual-model machinery → committee),
   agent.py (main loop), executor.py, agent_state.py, config.py, Makefile, tests/.
