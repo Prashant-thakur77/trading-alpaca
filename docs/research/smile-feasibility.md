@@ -30,6 +30,43 @@ a polynomial fit of IV against standardised moneyness m = ln(K/S)/sqrt(T).
 | 0.2 | 2 | 14 | 0.141v | 0.069v | 2.05x |
 | 0.2 | 3 | 14 | 0.112v | 0.069v | **1.63x** |
 
+## CORRECTION, 2026-08-30: the aggregate ratio is not robust
+
+The 1.63x above is **one of several defensible aggregations, and should not be
+quoted as a headline number**. Re-measured on the same chain, the same fit and
+the same band, varying only how the per-strike noise is aggregated:
+
+| aggregation of the noise term | noise | signal/noise |
+|---|---|---|
+| mean of per-group medians (the table above) | 0.069v | 1.63x |
+| pooled median across all strikes | 0.053v | 2.12x |
+| pooled mean across all strikes | 0.265v | **0.42x** |
+
+The per-strike noise distribution is heavily right-skewed: p10 0.017v, p50
+0.053v, p90 0.712v. A handful of wide-quote strikes that still pass our 10%
+gate drag the mean up by a factor of five, so the choice between mean and
+median moves the answer across the decision boundary. **An aggregate that
+swings from 0.42x to 2.12x on an arbitrary methodological choice is not
+evidence of anything.**
+
+This was caught when an independent implementation measured 0.42x against the
+1.63x recorded here and flagged the disagreement rather than adopting the
+published figure.
+
+The robust finding is not the aggregate at all. It is the **per-strike**
+comparison, which is what the shipped `analytics.richness()` actually does:
+each strike's residual is compared to that strike's own IV bid-ask half-width,
+and scores exactly zero below it. Measured live on 1,070 liquid strikes:
+
+- **230 strikes (21.5%) score non-zero.** 78.5% are inside their own spread.
+- The median scoring strike is worth **$3.94 per contract against a $4.00
+  median quoted spread.**
+
+That last line is the whole result, and it is stronger than any ratio: even
+where richness survives the noise gate, it is worth almost exactly what it
+costs to capture. Richness is a tie-breaker among already-viable strikes. It is
+not edge, and the aggregate signal-to-noise figure should not be cited.
+
 ## What this means
 
 The headline 5.51x is not evidence of mispricing. Signal-to-noise falls
