@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 TRADING_DAYS = 252
 RISK_FREE_RATE = 0.045  # ~US 3M T-bill; refreshed per session, not per trade.
+CONTRACT_MULTIPLIER = 100
 
 # Black-Scholes divides by t; an expiring option would blow up. One hour floor.
 MIN_T_YEARS = 1.0 / (365 * 24)
@@ -126,6 +127,34 @@ def greeks(
     if not all(math.isfinite(v) for v in (g.delta, g.gamma, g.theta, g.vega)):
         return ZERO_GREEKS
     return g
+
+
+def position_greeks(intent, spot: float) -> tuple[float, float]:
+    """Net (delta, vega) for a whole position, in position terms.
+
+    Per-share Greeks scaled by side (short legs negate), the 100-share contract
+    multiplier, and the contract count — which is what RiskGuard's
+    |net delta| and |net vega| limits are expressed in.
+
+    IV is solved from each leg's mid price. A leg we cannot price contributes
+    zero rather than raising, so one bad quote cannot abort a scan.
+    """
+    if intent is None or spot <= 0:
+        return 0.0, 0.0
+
+    t = time_to_expiry_years(intent.dte)
+    net_delta = net_vega = 0.0
+    for leg in intent.legs:
+        q = leg.quote
+        iv = implied_vol(q.mid, spot, q.strike, t, q.right)
+        if iv is None:
+            continue
+        g = greeks(q.right, spot, q.strike, t, iv)
+        sign = -1.0 if leg.side == "sell" else 1.0
+        scale = sign * CONTRACT_MULTIPLIER * leg.contracts
+        net_delta += g.delta * scale
+        net_vega += g.vega * scale
+    return net_delta, net_vega
 
 
 def theoretical_price(

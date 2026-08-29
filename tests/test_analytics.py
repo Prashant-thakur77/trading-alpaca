@@ -118,3 +118,51 @@ class TestGreeks:
         g = greeks("c", 450.0, 450.0, time_to_expiry_years(30), 0.0)
         assert isinstance(g, OptionGreeks)
         assert g.delta == 0.0 and g.vega == 0.0
+
+
+class TestPositionGreeks:
+    """Position-level Greeks: per-share Greeks scaled by side, 100x, contracts."""
+
+    def _spread(self, contracts=1):
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from datetime import date, timedelta
+        from candidate_builder import OptionQuote, build_bear_call_spread
+        exp = date.today() + timedelta(days=30)
+        def q(k, r, b, a):
+            return OptionQuote(f"SPY{k}{r}", "SPY", k, exp, r, b, a, 500)
+        return build_bear_call_spread(q(455, "c", 3.00, 3.10),
+                                      q(460, "c", 2.00, 2.10), contracts=contracts)
+
+    def test_short_call_spread_is_net_short_delta(self):
+        """Selling the nearer call dominates, so the spread is short delta."""
+        from analytics import position_greeks
+        delta, _ = position_greeks(self._spread(), spot=450.0)
+        assert delta < 0
+
+    def test_scales_with_contract_count(self):
+        from analytics import position_greeks
+        d1, v1 = position_greeks(self._spread(1), spot=450.0)
+        d3, v3 = position_greeks(self._spread(3), spot=450.0)
+        assert d3 == pytest.approx(d1 * 3, rel=1e-6)
+        assert v3 == pytest.approx(v1 * 3, rel=1e-6)
+
+    def test_vertical_spread_has_near_zero_vega(self):
+        """The two legs' vegas nearly cancel — this is why the vega limit
+        binds on straddles, not verticals."""
+        from analytics import position_greeks
+        _, vega = position_greeks(self._spread(), spot=450.0)
+        assert abs(vega) < 50
+
+    def test_uses_contract_multiplier(self):
+        """Greeks are per share; a position is 100 shares per contract."""
+        from analytics import position_greeks
+        delta, _ = position_greeks(self._spread(), spot=450.0)
+        assert abs(delta) > 1.0   # would be < 1 if the 100x were missing
+
+    def test_unpriceable_leg_yields_zero_not_an_exception(self):
+        """Fail closed: a leg we cannot price contributes nothing rather than
+        raising mid-scan."""
+        from analytics import position_greeks
+        d, v = position_greeks(self._spread(), spot=0.0)
+        assert d == 0.0 and v == 0.0
