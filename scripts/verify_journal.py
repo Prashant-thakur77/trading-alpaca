@@ -29,6 +29,20 @@ def main() -> int:
     args = parser.parse_args()
 
     path = Path(args.path)
+
+    # An absent journal is "nothing recorded yet", not "tampered with". Only a
+    # journal that exists can have its chain broken, and that is what exit 1
+    # is reserved for — so a fresh clone doesn't report a false alarm.
+    if not path.exists():
+        if args.json:
+            print(json.dumps({"path": str(path), "intact": True, "entries": 0,
+                              "note": "No journal yet — no decisions recorded."}, indent=2))
+        else:
+            print(f"\n  Journal:  {path}")
+            print(f"  Entries:  0")
+            print(f"  Chain:    EMPTY — no decisions recorded yet\n")
+        return 0
+
     ok, err = verify_chain(path)
     entries = Journal(path).entries() if ok else []
 
