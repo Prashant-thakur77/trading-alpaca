@@ -15,7 +15,31 @@ To stay deterministic under those two pressures, this module:
     a live chain fetch (a real chain yields ~600 candidates in no promised
     order).
 """
+from dataclasses import dataclass, field
+
 from candidate_builder import TradeIntent
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """The rendered text AND the id -> TradeIntent mapping that produced it.
+
+    Returning only the text would force every orchestrator to re-derive this
+    module's private sort and cap in order to turn the trader's validated
+    `"c3"` back into an order. An orchestrator that indexed its own unsorted
+    candidate list instead (a live chain yields ~600 candidates in no promised
+    order) would send a *different trade than the id names*, while the id
+    validated cleanly and every guard reported PASS — CLAUDE.md hard rule 1
+    defeated silently. So exactly one piece of code owns id assignment: this
+    one, and it hands the mapping back with the text.
+    """
+    text: str
+    candidates: dict[str, TradeIntent] = field(default_factory=dict)
+
+    @property
+    def candidate_ids(self) -> list[str]:
+        """Ids in rendered order — what the trader is offered to choose from."""
+        return list(self.candidates)
 
 
 def _money(x: float) -> str:
@@ -27,9 +51,16 @@ def _pct(x: float) -> str:
 
 
 def _candidate_sort_key(intent: TradeIntent):
-    """Canonical, order-independent sort key for capping the candidate list."""
+    """Canonical, order-independent sort key for capping the candidate list.
+
+    `contracts` is part of the key because max_loss/max_profit render from it:
+    two candidates identical on everything else but differing in size are two
+    distinguishable rows, and without this term their order would fall back to
+    input order — exactly the non-determinism this module exists to remove.
+    """
     strikes = tuple(round(leg.quote.strike, 4) for leg in intent.legs)
-    return (intent.structure, intent.dte, strikes, round(intent.net_credit, 4))
+    return (intent.structure, intent.dte, strikes, round(intent.net_credit, 4),
+            intent.contracts)
 
 
 def _render_candidate(cid: str, intent: TradeIntent) -> str:
@@ -54,17 +85,21 @@ def render_snapshot(
     realized_vol: float,
     candidates: list[TradeIntent],
     max_candidates: int = 12,
-) -> str:
-    """Render one deterministic snapshot string for the given cycle inputs.
+) -> Snapshot:
+    """Render one deterministic `Snapshot` for the given cycle inputs.
 
     Candidates are sorted by a canonical key (structure, dte, strikes, net
-    credit) before ids c1..cN are assigned and the list is capped at
-    `max_candidates` — so the selection is reproducible regardless of the
+    credit, contracts) before ids c1..cN are assigned and the list is capped
+    at `max_candidates` — so the selection is reproducible regardless of the
     order the caller's candidate list happened to be built in.
+
+    Returns both the text the analysts see and the id -> TradeIntent mapping
+    that names what each id actually is (see `Snapshot`).
     """
     ordered = sorted(candidates, key=_candidate_sort_key)
     total = len(ordered)
     capped = ordered[:max_candidates]
+    by_id = {f"c{i}": intent for i, intent in enumerate(capped, start=1)}
 
     lines = [
         f"UNDERLYING: {underlying}",
@@ -72,7 +107,7 @@ def render_snapshot(
         f"REALIZED_VOL: {_pct(realized_vol)}%",
         f"CANDIDATES ({len(capped)} of {total}):",
     ]
-    for i, intent in enumerate(capped, start=1):
-        lines.append(_render_candidate(f"c{i}", intent))
+    for cid, intent in by_id.items():
+        lines.append(_render_candidate(cid, intent))
 
-    return "\n".join(lines) + "\n"
+    return Snapshot(text="\n".join(lines) + "\n", candidates=by_id)
