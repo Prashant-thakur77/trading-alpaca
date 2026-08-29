@@ -22,9 +22,18 @@ Failure policy follows spec 4.4 — **fail loud on data, fail soft on the LLM**:
     candidate passed the liquidity gate" with a success exit code.
 
 Never partial or stale data, and failures are not cached.
+
+Every network call is wrapped in `_with_timeout`. alpaca-py exposes no request
+timeout of its own — `RESTClient` accepts only `retry_attempts`,
+`retry_wait_seconds` and `retry_exception_codes` — so a stalled socket blocks
+the caller indefinitely. That is not theoretical: a seeding run hung inside
+alpaca-py and had to be killed by hand. A session that hangs during market
+hours is worse than one that fails, because a hang is silent and a failure is
+loud.
 """
 import logging
 import os
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -35,6 +44,43 @@ from candidate_builder import MAX_DTE, MIN_DTE, OptionQuote
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SECONDS = 15 * 60  # 15 minutes
+
+# Generous enough for a slow option-chain page, short enough that a scan cycle
+# cannot stall past its own 30-minute schedule.
+DEFAULT_REQUEST_TIMEOUT = 45
+
+
+def _with_timeout(fn, *args, timeout: int = DEFAULT_REQUEST_TIMEOUT, **kwargs):
+    """Run a blocking client call under a wall-clock ceiling.
+
+    Raises TimeoutError when the ceiling is hit. Reaching it is treated as a
+    failed fetch, never as empty data.
+
+    A daemon thread rather than ThreadPoolExecutor: the executor's context
+    manager calls shutdown(wait=True) on exit, so it blocks on the very thread
+    it is supposed to be timing out, and its worker threads are non-daemon, so
+    interpreter shutdown would join them too. A daemon thread abandons the
+    stalled socket and lets the process exit.
+    """
+    box: dict = {}
+
+    def _run():
+        try:
+            box["value"] = fn(*args, **kwargs)
+        except BaseException as e:      # noqa: BLE001 - re-raised on the caller's thread
+            box["error"] = e
+
+    worker = threading.Thread(target=_run, daemon=True,
+                              name=f"alpaca-{getattr(fn, '__name__', 'request')}")
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise TimeoutError(
+            f"{getattr(fn, '__name__', 'request')} exceeded {timeout}s"
+        )
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
 
 
 class MarketDataError(RuntimeError):
@@ -47,11 +93,13 @@ class AlpacaData:
     Clients are injected for testability; `from_env` builds the real ones.
     """
 
-    def __init__(self, stock_client, option_client, trading_client, clock=time.monotonic):
+    def __init__(self, stock_client, option_client, trading_client, clock=time.monotonic,
+                 request_timeout: int = DEFAULT_REQUEST_TIMEOUT):
         self.stock_client = stock_client
         self.option_client = option_client
         self.trading_client = trading_client
         self._clock = clock
+        self.request_timeout = request_timeout
         self._cache: dict[tuple, tuple[float, object]] = {}
 
     @classmethod
@@ -111,7 +159,8 @@ class AlpacaData:
                 timeframe=timeframe or TimeFrame.Day,
                 start=datetime.now(timezone.utc) - timedelta(days=days),
             )
-            response = self.stock_client.get_stock_bars(request)
+            response = _with_timeout(self.stock_client.get_stock_bars, request,
+                                     timeout=self.request_timeout)
             bars = response.data.get(symbol, []) if hasattr(response, "data") else []
         except Exception as e:
             logger.warning("Bar fetch failed for %s: %s", symbol, e)
@@ -152,12 +201,14 @@ class AlpacaData:
         today = datetime.now(timezone.utc).date()
         try:
             from alpaca.data.requests import OptionChainRequest
-            snapshots = self.option_client.get_option_chain(
+            snapshots = _with_timeout(
+                self.option_client.get_option_chain,
                 OptionChainRequest(
                     underlying_symbol=underlying,
                     expiration_date_gte=today + timedelta(days=min_dte),
                     expiration_date_lte=today + timedelta(days=max_dte),
-                )
+                ),
+                timeout=self.request_timeout,
             ) or {}
         except Exception as e:
             logger.error("Option chain fetch failed for %s: %s", underlying, e)
@@ -203,13 +254,15 @@ class AlpacaData:
         today = datetime.now(timezone.utc).date()
         try:
             from alpaca.trading.requests import GetOptionContractsRequest
-            response = self.trading_client.get_option_contracts(
+            response = _with_timeout(
+                self.trading_client.get_option_contracts,
                 GetOptionContractsRequest(
                     underlying_symbols=[underlying],
                     expiration_date_gte=today + timedelta(days=min_dte),
                     expiration_date_lte=today + timedelta(days=max_dte),
                     limit=10_000,
-                )
+                ),
+                timeout=self.request_timeout,
             )
             contracts = getattr(response, "option_contracts", None) or []
         except Exception as e:

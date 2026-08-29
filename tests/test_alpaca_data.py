@@ -246,3 +246,48 @@ class TestOptionChain:
         intent = build_bull_put_spread(by_symbol["SPY_445P"], by_symbol["SPY_440P"])
         assert intent is not None
         assert intent.max_loss == pytest.approx(400.0)
+
+
+class TestRequestTimeout:
+    """alpaca-py exposes no request timeout, so a stalled socket blocks forever.
+    A seeding run hung inside it and had to be killed by hand. A hang during
+    market hours is worse than a failure, because a hang is silent."""
+
+    def test_a_hanging_bars_call_does_not_block_forever(self):
+        import time as _t
+        from alpaca_data import AlpacaData
+
+        class Hanging:
+            def get_stock_bars(self, *_a, **_k):
+                _t.sleep(30)
+
+        d = AlpacaData(stock_client=Hanging(), option_client=object(),
+                       trading_client=object(), request_timeout=1)
+        started = _t.monotonic()
+        df = d.get_stock_bars("SPY", days=5)
+        # bars fail soft to an empty frame; the caller treats empty as a hard stop
+        assert df.empty
+        assert _t.monotonic() - started < 10, "the timeout did not fire"
+
+    def test_a_hanging_chain_call_raises_rather_than_returning_empty(self):
+        import time as _t
+        import pytest as _pytest
+        from alpaca_data import AlpacaData, MarketDataError
+
+        class Hanging:
+            def get_option_chain(self, *_a, **_k):
+                _t.sleep(30)
+
+        d = AlpacaData(stock_client=object(), option_client=Hanging(),
+                       trading_client=object(), request_timeout=1)
+        started = _t.monotonic()
+        with _pytest.raises(MarketDataError):
+            d.get_option_chain("SPY")
+        assert _t.monotonic() - started < 10, "the timeout did not fire"
+
+    def test_timeout_is_configurable_and_defaults_sensibly(self):
+        from alpaca_data import AlpacaData, DEFAULT_REQUEST_TIMEOUT
+        d = AlpacaData(stock_client=object(), option_client=object(),
+                       trading_client=object())
+        assert d.request_timeout == DEFAULT_REQUEST_TIMEOUT
+        assert 10 <= DEFAULT_REQUEST_TIMEOUT <= 120
