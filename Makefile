@@ -1,4 +1,4 @@
-.PHONY: help install test status scan dry-run run reset validate validate-json verify clean
+.PHONY: help install test status scan dry-run run reset validate validate-json verify verify-journal clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
@@ -13,6 +13,7 @@ help: ## Show available commands
 	@echo "  make validate     Validation audit report (for judges)"
 	@echo "  make validate-json  Audit report as JSON"
 	@echo "  make verify       Verify Merkle integrity of validation artifacts"
+	@echo "  make verify-journal  Verify hash chain of the decision journal"
 	@echo "  make reset        Reset paper balance to \$$100,000"
 	@echo "  make clean        Remove caches and logs"
 
@@ -45,6 +46,9 @@ validate-json:
 
 verify:
 	python3 merkle.py
+
+verify-journal:
+	python3 scripts/verify_journal.py
 
 clean:
 	rm -rf __pycache__ tests/__pycache__ .pytest_cache logs/*.log

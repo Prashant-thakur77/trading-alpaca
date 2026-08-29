@@ -1,5 +1,11 @@
 numpy==1.26.4
 pandas==2.2.2
 requests==2.32.3
+# Alpaca paper trading (data + execution)
+alpaca-py==0.44.0
+# Options pricing: IV + Greeks (installs the `vollib` package)
+py_vollib==1.0.1
+# risk.yaml parsing
+PyYAML==6.0.2
 # Running tests
 pytest==8.2.2

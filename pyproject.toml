@@ -2,13 +2,16 @@
 name = "trading-alpaca"
 version = "1.0.0"
 description = "AI-powered trading agent for the AgenticTrade hackathon"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 
 dependencies = [
     "numpy==1.26.4",
     "pandas==2.2.2",
     "requests==2.32.3",
+    "alpaca-py==0.44.0",
+    "py_vollib==1.0.1",
+    "PyYAML==6.0.2",
 ]
 
 [project.optional-dependencies]

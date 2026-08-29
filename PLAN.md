@@ -18,18 +18,26 @@
 - [x] Commit "phase 1: strip on-chain + dead code, tests green"
 
 ## Phase 2 — Sun Aug 30: Alpaca + options engine + guard + journal (markets closed)
-- [ ] alpaca_data.py: stock bars + option-chain fetch (MCP tools + alpaca-py),
-      15-min cache; retire kraken_data.py
-- [ ] analytics: realized vol from bars, IV + Greeks via py_vollib
+REORDERED 2026-08-29 into dependency order, zero-credential modules first, so
+work is never blocked on Alpaca paper keys arriving. Rationale in docs/AUDIT.md.
+- [ ] journal.py: hash-chained JSONL + scripts/verify_journal.py (no deps)
+- [ ] analytics.py: realized vol from bars, IV + Greeks via vollib
+      (import `vollib`, not deprecated `py_vollib` alias; py_vollib is the
+      pip install name)
 - [ ] candidate_builder.py: TradeIntent dataclass; builds bull put credit spread,
       bear call credit spread, iron condor, long straddle — fully specified
+- [ ] risk.yaml: single source of truth for every limit in CLAUDE.md
 - [ ] Extend risk_manager.py: risk.yaml + ALLOW/DENY/ALLOW_WITH_DOWNSIZE verdicts,
       downsizing math, startup checks (fresh acct, options level, no positions),
       kill switch
-- [ ] journal.py: hash-chained JSONL + scripts/verify_journal.py
+- [ ] alpaca_data.py: stock bars + option-chain fetch via alpaca-py, 15-min
+      cache; retire kraken_data.py  ← needs paper keys for live verification
 - [ ] Point validate.py walk-forward at SPY/QQQ + 2 liquid names (daily bars)
 - [ ] Unit tests: builder 5+, guard 8+, journal 3+
 - [ ] Commit per module
+
+Decision: alpaca-py direct for the Phase 2 data/execution layer (unit-testable,
+no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
 
 ## Phase 3 — Mon Aug 31: committee + first live session
 - [ ] committee/: vol_analyst, news_analyst, bull-vs-bear debate (2 rounds),
