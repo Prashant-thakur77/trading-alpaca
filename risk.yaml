@@ -9,8 +9,11 @@ account:
   # Paper account only, ever (hard rule 3). Startup refuses to run otherwise.
   paper_only: true
   initial_capital: 100000.0
-  # Minimum Alpaca options trading level for spreads (level 2 = defined-risk).
-  min_options_level: 2
+  # Alpaca options level 3 is required for SPREADS. Level 2 only permits long
+  # calls/puts, so a level-2 account passes startup and then has every
+  # multi-leg order rejected by the broker. Verified against Alpaca's levels
+  # and against a same-event competitor gating on >= 3.
+  min_options_level: 3
 
 position:
   # 1% of $100k. Hard cap on a single position's defined max loss.

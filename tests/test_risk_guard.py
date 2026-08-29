@@ -227,7 +227,7 @@ class TestFailClosed:
 
 class TestStartupChecks:
     def test_passes_on_a_fresh_paper_account(self, guard):
-        ok, err = guard.startup_checks(is_paper=True, options_level=2, open_positions=0)
+        ok, err = guard.startup_checks(is_paper=True, options_level=3, open_positions=0)
         assert ok is True, err
 
     def test_refuses_a_live_account(self, guard):
@@ -241,7 +241,14 @@ class TestStartupChecks:
         assert ok is False
         assert "level" in err.lower()
 
+    def test_refuses_level_2_which_cannot_trade_spreads(self, guard):
+        """Level 2 permits only long calls/puts. A level-2 account would pass
+        startup and then have every multi-leg order rejected by the broker."""
+        ok, err = guard.startup_checks(is_paper=True, options_level=2, open_positions=0)
+        assert ok is False
+        assert "level" in err.lower()
+
     def test_refuses_preexisting_positions(self, guard):
-        ok, err = guard.startup_checks(is_paper=True, options_level=2, open_positions=2)
+        ok, err = guard.startup_checks(is_paper=True, options_level=3, open_positions=2)
         assert ok is False
         assert "position" in err.lower()
