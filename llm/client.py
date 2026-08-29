@@ -42,8 +42,20 @@ class LLMResponse:
     cost_usd: float
 
 
-def _prompt_hash(model: str, prompt: str) -> str:
+def prompt_hash(model: str, prompt: str) -> str:
+    """The cache key for one (model, prompt) pair.
+
+    Public because the prompt cache lives outside this module: `committee`
+    computes this key BEFORE deciding whether to spend a call, so a hit never
+    reaches `call_claude` at all. Two callers computing the key two ways would
+    silently halve the hit rate and break replay, so there is exactly one
+    definition and it is this one.
+    """
     return hashlib.sha256(f"{model}\n{prompt}".encode("utf-8")).hexdigest()
+
+
+# Retained for the existing internal call sites and tests.
+_prompt_hash = prompt_hash
 
 
 def _extract_first_balanced_braces(text: str) -> str | None:
