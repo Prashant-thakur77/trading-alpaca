@@ -364,3 +364,41 @@ was green (335 -> 497) throughout all of them.
 
 Pattern worth keeping: unit tests with injected fakes passed through all five.
 Only live execution against the real chain and real models exposed them.
+
+## MILESTONE — full pipeline produces a guard-approved trade (2026-08-29 late)
+
+519 tests. Live SPY, spot 769.35, 632 candidates -> 12 surfaced.
+
+    vol_analyst    p=0.63  IV 2.27pp above realized; options rich for selling
+    bear_adversary p=0.40  "breakevens only 0.4-0.6% away; a routine 1-2% move
+                            in 27 days breaches them"
+    trader: c3            "materially wider cushion (1.75% vs 0.3-0.5% on the
+                            other top picks) and by far the deepest liquidity
+                            (OI 1699/21255), directly addressing
+                            bear_adversary's core objection"
+    thesis veto PASS      net delta -8.46 consistent with the bearish thesis
+    blind veto  PASS      independent agreement
+    guard ALLOW           risk $322.00, 1/3 positions, 1 contract
+    payload               limit_price -1.78, client_order_id a2bb861b...
+
+The adversary's objection CHANGED the selection — the trader declined the
+highest-credit candidate for the one that answers the criticism. That is the
+demonstrable difference between a committee and a rubber stamp.
+
+Every abstention before this point was correct given what the committee was
+shown. Each fix was to the MENU, never to the judgement:
+  - a single-structure menu (12 bear calls, 0 of anything else)
+  - straddles exceeding the max-loss cap (guaranteed denials)
+  - the four tightest breakevens of 188 available
+  - far-OTM wings at $0.02 credit against $498 risk (249:1)
+
+Deliberately NOT tuned: the blind veto. When it blocked a trade, I tested it
+across six candidates first — it passes some and vetoes others with sound
+reasons, so it discriminates rather than blanket-refusing. Softening a safety
+component until it approves more trades is the failure this project exists to
+avoid.
+
+Notable: the blind reviewer caught a defect in the deterministic code meant to
+constrain it — it flagged "$0.02 credit against $498 max loss is indefensible
+risk/reward (249:1 against trader)" unprompted, which is what prompted the
+credit floor. The decorrelated veto is not theatre.
