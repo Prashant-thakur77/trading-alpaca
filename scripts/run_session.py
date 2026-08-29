@@ -39,7 +39,7 @@ from analytics import (
     CONTRACT_MULTIPLIER, greeks, implied_vol, position_greeks,
     realized_volatility, time_to_expiry_years,
 )
-from committee.decide import ABSTAIN, CommitteeDecision
+from committee.decide import ABSTAIN, NOT_RUN, CommitteeDecision
 from committee.decide import decide as committee_decide
 from candidate_builder import (
     build_bear_call_spread, build_bull_put_spread, build_long_straddle,
@@ -411,6 +411,23 @@ def run_committee(committee, underlying, spot, realized_vol, candidates,
     return decision
 
 
+def _veto_verdict(ok: bool, reason: str) -> str:
+    """Render one veto's verdict line — without ever leading with the word
+    VETO for a check that never ran.
+
+    When the cycle abstains before the veto layer, `decide()` leaves both
+    `ok` flags False with `reason=NOT_RUN` (committee/decide.py). Printing
+    that as "VETO — not reached ..." reads, to a judge skimming the
+    transcript, as a veto having actually fired on a trade that was never
+    proposed. "not run" leads instead — never "PASS", since a check that
+    did not run must never render as passed.
+    """
+    if reason == NOT_RUN:
+        detail = NOT_RUN.split("— ", 1)[1] if "— " in NOT_RUN else NOT_RUN
+        return f"not run ({detail})"
+    return f"{'PASS' if ok else 'VETO'} — {reason}"
+
+
 def print_committee(decision: CommitteeDecision) -> None:
     """Print the whole reasoning chain: a judge watching the screen should be
     able to follow it from each analyst's view to both veto verdicts."""
@@ -424,10 +441,8 @@ def print_committee(decision: CommitteeDecision) -> None:
     print(f"    aggregate probability: "
           f"{'none — every analyst abstained' if aggregate is None else f'{aggregate:.2f}'}")
     print(f"    trader: {decision.choice_id} — {decision.trader_reasoning or '(no reasoning given)'}")
-    print(f"    veto thesis: {'PASS' if decision.thesis_ok else 'VETO'} — "
-          f"{decision.thesis_reason}")
-    print(f"    veto blind:  {'PASS' if decision.blind_ok else 'VETO'} — "
-          f"{decision.blind_reason}")
+    print(f"    veto thesis: {_veto_verdict(decision.thesis_ok, decision.thesis_reason)}")
+    print(f"    veto blind:  {_veto_verdict(decision.blind_ok, decision.blind_reason)}")
 
 
 # ── session ──────────────────────────────────────────────────

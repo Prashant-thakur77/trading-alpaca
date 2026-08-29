@@ -756,3 +756,35 @@ class TestCommitteeDryRun:
         llm_bench(committee, argv=["--dry-run"])
         assert committee.calls[0]["journal"] is None
         assert len(llm_bench.journal.entries()) == before
+
+
+# ── a not-run veto must not read as a fired veto ─────────────
+#
+# When the cycle abstains before the veto layer, both thesis_ok and
+# blind_ok stay False with reason=NOT_RUN (committee/decide.py). Printing
+# that as "VETO — not reached ..." puts the word VETO in front of a check
+# that never ran: a judge skimming the transcript reads it as two vetoes
+# having fired on a trade that was never proposed. The display must make
+# the not-run state unmistakable without claiming PASS (a check that did
+# not run must never render as passed) and without leading with VETO.
+
+class TestNotRunVetoRendering:
+    def test_not_run_veto_does_not_read_as_a_fired_veto_or_a_pass(self, capsys):
+        from committee.decide import NOT_RUN
+        decision = _decision(thesis=(False, NOT_RUN), blind=(False, NOT_RUN))
+        run_session.print_committee(decision)
+        out = capsys.readouterr().out
+        thesis_line = [l for l in out.splitlines() if "veto thesis" in l][0]
+        blind_line = [l for l in out.splitlines() if "veto blind" in l][0]
+        for line in (thesis_line, blind_line):
+            stripped = line.strip()
+            assert not stripped.startswith("VETO"), line
+            assert "PASS" not in line, line
+            assert "not run" in line.lower()
+
+    def test_a_veto_that_actually_ran_still_renders_pass_or_veto(self, capsys):
+        run_session.print_committee(_decision(thesis=(True, "fine"),
+                                               blind=(False, "gap risk")))
+        out = capsys.readouterr().out
+        assert "veto thesis: PASS" in out
+        assert "veto blind:  VETO" in out
