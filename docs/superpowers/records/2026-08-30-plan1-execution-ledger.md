@@ -315,3 +315,52 @@ Ruling: PARK — count_positions groups by (root, expiry), so two distinct
   permissive direction, but max_new_per_underlying_per_day: 1 prevents it
   within a day and total exposure stays bounded by max_positions x
   max_loss_per_position. Cost if wrong: at most one extra concurrent spread.
+
+---
+
+## Sunday-eve committee session — findings (2026-08-29)
+
+Five defects, every one found by RUNNING the system, not reading it. The suite
+was green (335 -> 497) throughout all of them.
+
+1. **Committee was never wired into the session.** `committee/` was built,
+   tested and verified live, but `scripts/run_session.py` never called it —
+   selection was still the deterministic credit/max-loss ratio. Monday would
+   have produced a fill from the non-agentic path with the committee sitting
+   unused. Nothing journalled it either, so the judge-page replay corpus was
+   empty. Fixed: `committee/decide.py` orchestrator + full journal trail +
+   wired prompt cache + a `--no-llm` fallback for rate limits.
+
+2. **Walk-forward harness inflated its own win rate.** Held 11 bars, scaled the
+   breach threshold to 21 days (sqrt-of-time), giving a threshold ~1.38x too
+   generous and a manufactured 29/30 win rate. Corrected: AAPL now loses money
+   (-0.12R, 6R drawdown). Same species as the fabricated 82.2% deleted in
+   Phase 1, except computed wrongly rather than invented.
+
+3. **Vol analyst read its central input backwards.** IV below realized means
+   options are cheap relative to actual movement — an argument AGAINST selling
+   premium. The analyst concluded the opposite (p=0.66) while the adversary got
+   it right. Cause: the snapshot stated the signed number without its
+   interpretation. Fixed; the analyst now reads p=0.32 and both agree.
+
+4. **The committee could only see ONE structure type.** Of 632 candidates (440
+   bull put, 188 bear call, 4 straddle) the cap surfaced 12 bear calls and
+   nothing else. Its abstention was correct reasoning on a rigged menu — and it
+   meant Monday would likely abstain and produce NO FILL. Fixed with stratified
+   selection: now 4/4/4.
+
+5. **ATM implied vol was computed from the surfaced candidates, not the
+   market** (`snapshot.py:256`). The vol-regime signal — the analysts' primary
+   input — was therefore a property of our own selection. Measured: on one
+   unchanged chain (same spot, same bars) the reading went from 0.69pp BELOW
+   realized to 0.72pp ABOVE, and the recommendation flipped from ABSTAIN to a
+   selected bear call spread. Cause is skew: surfacing only bear call spreads
+   sampled only OTM calls, which sit lower on the skew.
+
+   NOTE: the subagent that fixed finding 4 attributed this flip to "live market
+   state". That was wrong — spot, bars and session were identical. Accepting
+   that explanation would have closed a real defect as a non-issue. Diagnosed
+   by the controller and fixed separately.
+
+Pattern worth keeping: unit tests with injected fakes passed through all five.
+Only live execution against the real chain and real models exposed them.
