@@ -53,16 +53,6 @@ class Journal:
                 last = line
         return json.loads(last) if last else None
 
-    def _last_entry(self) -> dict | None:
-        """Read the final entry, or None for an empty/absent journal.
-
-        Unlocked — for read-only callers. `append` must NOT use this: it reads
-        the tail *inside* the lock, see below.
-        """
-        if not self.path.exists():
-            return None
-        return self._tail_of(self.path.read_text())
-
     def append(self, entry_type: str, payload: dict) -> dict:
         """Append one entry chained to the current tail. Returns the entry.
 
