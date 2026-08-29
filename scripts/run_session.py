@@ -696,7 +696,21 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
     _load_dotenv(REPO_ROOT / ".env")
     parser = argparse.ArgumentParser(description="Run one options session cycle")
     parser.add_argument("--symbol", default="SPY")
-    parser.add_argument("--dry-run", action="store_true", help="Never send an order")
+    parser.add_argument(
+        "--live", action="store_true",
+        help="Submit orders to the broker. Without this flag, NO order is ever "
+             "sent — the cycle runs the complete pipeline (preflight, "
+             "committee, vetoes, guard, payload) and stops before submission. "
+             "This is the only way to move money: it must be typed, never the "
+             "default (2026-08-29 incident: a shell-expanded backtick in an "
+             "unrelated commit message ran `make session`, which submitted by "
+             "default).")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Explicit no-op alias: never send an order. This is already the "
+             "default behaviour without --live; pass it when you want that "
+             "intent to be unmistakable in a script or a habit, or to "
+             "override a stray --live.")
     parser.add_argument(
         "--no-llm", action="store_true",
         help="Skip the LLM committee and select deterministically (most credit "
@@ -706,6 +720,22 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
     symbol = args.symbol.upper()
+
+    # Submitting requires BOTH an explicit --live AND the absence of
+    # --dry-run: on any ambiguous combination (both flags given) this fails
+    # closed toward NOT submitting, exactly like every other guard in this
+    # file. `live` is the single source of truth for "will this cycle reach
+    # the broker" — every place that used to branch on `args.dry_run` below
+    # now branches on `not live` instead, so the whole pipeline runs (and
+    # prints exactly what it would do) whether or not --live was passed.
+    live = args.live and not args.dry_run
+    banner = ("LIVE — orders WILL be sent to the broker this run."
+              if live else
+              "not live — no order will be sent to the broker this run "
+              "(pass --live to submit).")
+    print(f"  {'=' * 60}")
+    print(f"  MODE: {banner}")
+    print(f"  {'=' * 60}")
 
     guard = guard or RiskGuard(load_risk_config())
 
@@ -767,7 +797,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
     # working order or an empty candidate list. A dry run is a rehearsal and
     # never sends a closing order.
     store = store if store is not None else OpenTradeStore(OPEN_TRADES_PATH)
-    if args.dry_run:
+    if not live:
         print("  DRY RUN — the open book is not managed and nothing is closed.")
     else:
         manage_open_book(cli, data, guard, journal, store,
@@ -782,7 +812,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
         return _abstain(journal,
                         f"{len(already_working)} working order(s) already open for "
                         f"{symbol} ({ids}) — not stacking a second one",
-                        {"underlying": symbol, "order_ids": ids}, args.dry_run)
+                        {"underlying": symbol, "order_ids": ids}, not live)
 
     try:
         bars = data.get_stock_bars(symbol, days=30)
@@ -807,7 +837,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
     print(f"  {symbol} spot ${spot:,.2f} — {len(candidates)} candidate(s)")
     if not candidates:
         return _abstain(journal, "no candidate passed the liquidity gate",
-                        {"underlying": symbol}, args.dry_run)
+                        {"underlying": symbol}, not live)
 
     # ATM IV must be a property of the market (the whole chain), never of
     # which candidates happened to be built or survive the committee's
@@ -836,7 +866,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
             # A dry run is a rehearsal and stays out of the judged chain, the
             # same rule `_abstain(dry_run=True)` already follows. In a live
             # run the committee journals every stage itself (hard rule 5).
-            None if args.dry_run else journal,
+            None if not live else journal,
         )
         print_committee(decision)
         if decision.chosen is None:
@@ -844,7 +874,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
             return _abstain(journal, f"committee abstained — {decision.abstain_reason}",
                             {"underlying": symbol,
                              "snapshot_hash": decision.snapshot_hash},
-                            args.dry_run)
+                            not live)
         chosen = decision.chosen
         snapshot_hash = decision.snapshot_hash
 
@@ -858,7 +888,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
                         "the candidate's Greeks are unmeasurable (a leg has no "
                         "solvable IV) — cannot check the delta/vega limits",
                         {"underlying": symbol, "structure": chosen.structure},
-                        args.dry_run)
+                        not live)
     pos_delta, pos_vega = measured
     print(f"  position greeks: delta {pos_delta:+.1f}, vega {pos_vega:+.1f}")
 
@@ -867,7 +897,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
         return _abstain(journal,
                         f"the existing book ({len(positions)} row(s)) cannot be "
                         f"valued — refusing to score it as flat Greeks",
-                        {"open_rows": len(positions)}, args.dry_run)
+                        {"open_rows": len(positions)}, not live)
     net_delta, net_vega = book
 
     day_pnl = daily_pnl(account)
@@ -875,7 +905,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
         return _abstain(journal,
                         "the day's P&L cannot be read from the account — the "
                         "daily-loss halt cannot be enforced",
-                        {"underlying": symbol}, args.dry_run)
+                        {"underlying": symbol}, not live)
 
     state = PortfolioState(
         open_positions=open_positions,
@@ -912,7 +942,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
             realized_vol)
         print_exit_plan(triggers)
 
-    if args.dry_run:
+    if not live:
         # The dry run exists to show exactly what the live run would do, so it
         # runs the whole preflight and prints the wire payload it would send.
         if verdict.is_tradeable and verdict.approved_contracts >= 1:

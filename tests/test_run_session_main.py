@@ -220,7 +220,7 @@ class TestWorkingOrders:
             "id": "o-9", "status": "new", "order_class": "mleg",
             "legs": [{"symbol": _occ(300, "p", root="QQQ")}],
         }])
-        assert bench(cli=cli) == 0
+        assert bench(cli=cli, argv=["--live"]) == 0
         assert len(cli.posted) == 1
 
     def test_an_unattributable_working_order_blocks_conservatively(self, bench):
@@ -231,7 +231,7 @@ class TestWorkingOrders:
 
     def test_the_submitted_payload_is_idempotent_at_the_broker(self, bench):
         cli = FakeCLI()
-        assert bench(cli=cli) == 0
+        assert bench(cli=cli, argv=["--live"]) == 0
         assert cli.posted[0]["client_order_id"]
 
 
@@ -317,7 +317,7 @@ class TestPortfolioStateIsDerived:
         bench.journal.append("close", {"underlying": "SPY", "realized_pnl": +50.0})
         bench.journal.append("close", {"underlying": "SPY", "realized_pnl": -120.0})
         cli = FakeCLI()
-        assert bench(cli=cli) == 0
+        assert bench(cli=cli, argv=["--live"]) == 0
         assert len(cli.posted) == 1
 
     def test_one_new_trade_per_underlying_per_day_actually_fires(self, bench, capsys):
@@ -339,7 +339,7 @@ class TestPortfolioStateIsDerived:
         obj["timestamp"] = stale
         bench.journal.path.write_text(json.dumps(obj) + "\n")
         cli = FakeCLI()
-        assert bench(cli=cli) == 0
+        assert bench(cli=cli, argv=["--live"]) == 0
         assert len(cli.posted) == 1
 
     def test_the_existing_books_greeks_are_charged_against_the_limit(self, bench, capsys):
@@ -407,7 +407,7 @@ class TestGuardRefusalShortCircuits:
         cli = FakeCLI(account={"options_trading_level": 3,
                                "equity": "97000", "last_equity": "100000"})
         bench.journal.append("fill", {"underlying": "QQQ", "structure": "iron_condor"})
-        assert bench(cli=cli) == 0
+        assert bench(cli=cli, argv=["--live"]) == 0
         assert cli.posted == []
         assert "guard refuses" in capsys.readouterr().out.lower()
 
@@ -728,7 +728,7 @@ class TestCommitteeIsWired:
             return chosen
 
         cli = FakeCLI()
-        assert llm_bench(FakeCommittee(pick=pick), cli=cli) == 0
+        assert llm_bench(FakeCommittee(pick=pick), cli=cli, argv=["--live"]) == 0
         assert len(cli.posted) == 1
         sent = {leg["symbol"] for leg in cli.posted[0]["legs"]}
         assert sent == {leg.quote.symbol for leg in picked["intent"].legs}
@@ -746,7 +746,7 @@ class TestCommitteeIsWired:
             return seen["other"]
 
         cli = FakeCLI()
-        llm_bench(FakeCommittee(pick=pick), cli=cli)
+        llm_bench(FakeCommittee(pick=pick), cli=cli, argv=["--live"])
         assert seen["other"] is not seen["best"]
         assert len(cli.posted) == 1
 
@@ -761,7 +761,8 @@ class TestCommitteeIsWired:
         cli = FakeCLI(account={"options_trading_level": 3,
                                "equity": "97000", "last_equity": "100000"})
         llm_bench.journal.append("fill", {"underlying": "QQQ", "structure": "iron_condor"})
-        assert llm_bench(FakeCommittee(pick=lambda c: c[0]), cli=cli) == 0
+        assert llm_bench(FakeCommittee(pick=lambda c: c[0]), cli=cli,
+                         argv=["--live"]) == 0
         assert cli.posted == []
         assert "guard refuses" in capsys.readouterr().out.lower()
 
@@ -786,8 +787,12 @@ class TestCommitteeAbstention:
         assert "abstain" in capsys.readouterr().out.lower()
 
     def test_an_abstention_is_journalled(self, llm_bench):
+        """An abstention is a decision (hard rule 5) and must be journalled on
+        a real (--live) run — a rehearsal without --live stays out of the
+        judged journal, exactly like --dry-run always has."""
         before = len(llm_bench.journal.entries())
-        llm_bench(FakeCommittee(_decision(abstain_reason="no edge")))
+        llm_bench(FakeCommittee(_decision(abstain_reason="no edge")),
+                  argv=["--live"])
         assert len(llm_bench.journal.entries()) > before
 
 
@@ -797,7 +802,7 @@ class TestNoLLMFallback:
         must still be able to trade rather than being dead."""
         committee = FakeCommittee(pick=lambda c: c[0])
         cli = FakeCLI()
-        assert llm_bench(committee, cli=cli, argv=["--no-llm"]) == 0
+        assert llm_bench(committee, cli=cli, argv=["--no-llm", "--live"]) == 0
         assert committee.calls == []
         assert len(cli.posted) == 1
 
@@ -923,7 +928,7 @@ def store(tmp_path):
 
 class TestPremortemRunsBeforeTheOrder:
     def test_a_live_cycle_journals_the_premortem_triggers(self, bench, store):
-        assert bench(store=store) == 0
+        assert bench(store=store, argv=["--live"]) == 0
         entries = _premortem_entries(bench.journal)
         assert len(entries) == 1
         kinds = [t["kind"] for t in entries[0]["triggers"]]
@@ -932,7 +937,7 @@ class TestPremortemRunsBeforeTheOrder:
     def test_the_premortem_runs_before_anything_is_sent(self, bench, store):
         """Order matters: triggers written after the fill would leave a live
         position with no exit plan if the process died in between."""
-        bench(store=store)
+        bench(store=store, argv=["--live"])
         types = [e["type"] for e in bench.journal.entries()]
         assert types.index("premortem") < types.index("proposal")
 
@@ -944,7 +949,7 @@ class TestPremortemRunsBeforeTheOrder:
             raise RuntimeError("claude is down")
 
         cli = FakeCLI()
-        assert bench(cli=cli, store=store, premortem=boom) == 0
+        assert bench(cli=cli, store=store, premortem=boom, argv=["--live"]) == 0
         assert cli.posted, "a pre-mortem outage must not block a guarded trade"
         kinds = [t["kind"] for t in _premortem_entries(bench.journal)[0]["triggers"]]
         assert "dte_below" in kinds
@@ -959,7 +964,7 @@ class TestPremortemRunsBeforeTheOrder:
 
 class TestTheOpenBookIsRemembered:
     def test_a_filled_trade_is_written_to_the_open_book(self, bench, store):
-        assert bench(store=store) == 0
+        assert bench(store=store, argv=["--live"]) == 0
         trades = store.load()
         assert len(trades) == 1
         trade = trades[0]
@@ -1000,7 +1005,8 @@ def _priced_chain():
 
 class TestTheNextCycleManagesTheBook:
     def _open_a_position(self, bench, store):
-        assert bench(store=store, data=FakeData(chain=_priced_chain())) == 0
+        assert bench(store=store, data=FakeData(chain=_priced_chain()),
+                     argv=["--live"]) == 0
         trades = store.load()
         assert trades, "precondition: a position must be open"
         assert trades[0].intent.net_credit > 0, "precondition: a real credit"
@@ -1023,7 +1029,7 @@ class TestTheNextCycleManagesTheBook:
         cli = FakeCLI(positions=self._book_at_the_profit_target(trade),
                       orders=[{"id": "w-1", "symbol": "SPY"}])
         assert bench(cli=cli, store=store,
-                     data=FakeData(chain=_priced_chain())) == 0
+                     data=FakeData(chain=_priced_chain()), argv=["--live"]) == 0
 
         closes = _close_entries(bench.journal)
         assert len(closes) == 1, "the position must be closed and journalled"
@@ -1039,7 +1045,7 @@ class TestTheNextCycleManagesTheBook:
 
         committee = FakeCommittee(pick=lambda c: c[0])
         data = FakeData(chain=_priced_chain())
-        assert llm_bench(committee, store=store, data=data) == 0
+        assert llm_bench(committee, store=store, data=data, argv=["--live"]) == 0
         trade = store.load()[0]
         assert trade.snapshot_hash, "the cycle's join key must be carried over"
 
@@ -1051,7 +1057,8 @@ class TestTheNextCycleManagesTheBook:
         cli = FakeCLI(positions=TestTheNextCycleManagesTheBook()
                       ._book_at_the_profit_target(trade),
                       orders=[{"id": "w-1", "symbol": "SPY"}])
-        assert llm_bench(committee, cli=cli, store=store, data=data) == 0
+        assert llm_bench(committee, cli=cli, store=store, data=data,
+                         argv=["--live"]) == 0
         assert resolved_predictions(llm_bench.journal, "vol_analyst") == [(0.8, True)]
 
     def test_a_dry_run_never_sends_a_closing_order(self, bench, store):
@@ -1067,11 +1074,72 @@ class TestTheNextCycleManagesTheBook:
         self._open_a_position(bench, store)
         cli = FakeCLI(positions=[], orders=[{"id": "w-1", "symbol": "SPY"}])
         assert bench(cli=cli, store=store,
-                     data=FakeData(chain=_priced_chain())) == 0
+                     data=FakeData(chain=_priced_chain()), argv=["--live"]) == 0
         assert store.load() == []
 
     def test_an_unreadable_open_book_does_not_stop_the_cycle(self, bench, tmp_path):
         from exit_monitor import OpenTradeStore
         path = tmp_path / "open_trades.json"
         path.write_text("{ not json")
-        assert bench(store=OpenTradeStore(path)) == 0
+        assert bench(store=OpenTradeStore(path), argv=["--live"]) == 0
+
+
+# ── the incident fix: submitting requires explicit --live ────
+#
+# 2026-08-29 14:43:11 UTC: backticks inside an unrelated `git commit -m`
+# message were shell-expanded and ran `make session`, which submitted a real
+# (unfilled, then cancelled) multi-leg paper order nobody intended to send.
+# Every safety rail behaved correctly — the guard approved a compliant trade
+# — but a command capable of reaching the broker was triggered by a quoting
+# accident. The fix: submitting is opt-in. `--dry-run` is no longer needed to
+# stay safe; NOT passing `--live` is now sufficient, and is the default.
+
+class TestSubmitRequiresLive:
+    def test_no_flags_submits_nothing(self, bench):
+        """The exact incident shape: main() invoked with no flags at all
+        (e.g. by an accidental `make session`) must never call post_order."""
+        cli = FakeCLI()
+        assert bench(cli=cli) == 0
+        assert cli.posted == [], "post_order must never be called without --live"
+
+    def test_live_with_a_guard_approved_candidate_submits(self, bench):
+        cli = FakeCLI()
+        assert bench(cli=cli, argv=["--live"]) == 0
+        assert len(cli.posted) == 1
+
+    def test_dry_run_flag_still_submits_nothing(self, bench):
+        cli = FakeCLI()
+        assert bench(cli=cli, argv=["--dry-run"]) == 0
+        assert cli.posted == []
+
+    def test_live_combined_with_dry_run_still_submits_nothing(self, bench):
+        """Fail closed on an ambiguous combination: --dry-run must win."""
+        cli = FakeCLI()
+        assert bench(cli=cli, argv=["--live", "--dry-run"]) == 0
+        assert cli.posted == []
+
+    def test_live_does_not_override_the_kill_switch(self, bench):
+        (bench.tmp_path / "KILL_SWITCH").touch()
+        cli = FakeCLI()
+        assert bench(cli=cli, argv=["--live"]) != 0
+        assert cli.posted == [], "--live must never bypass hard rule 6"
+
+    def test_mode_banner_says_no_order_will_be_sent_without_live(self, bench, capsys):
+        cli = FakeCLI()
+        bench(cli=cli)
+        out = capsys.readouterr().out
+        assert "no order" in out.lower() and "sent" in out.lower()
+
+    def test_mode_banner_says_orders_will_be_sent_with_live(self, bench, capsys):
+        cli = FakeCLI()
+        bench(cli=cli, argv=["--live"])
+        out = capsys.readouterr().out
+        assert "will" in out.lower() and "sent" in out.lower()
+        assert "live" in out.lower()
+
+    def test_malformed_flags_fail_closed(self, bench):
+        """Ambiguous/unparseable CLI args must not fall through to a submit."""
+        cli = FakeCLI()
+        with pytest.raises(SystemExit):
+            bench(cli=cli, argv=["--not-a-real-flag"])
+        assert cli.posted == []

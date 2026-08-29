@@ -18,6 +18,6 @@
   },
   "recorded_outcome": {
     "exit_code": 1,
-    "stdout": "  DATA FETCH FAILED \u2014 option chain for SPY (option chain request timed out).\n  This is an outage, not a market judgement. No trade.\n"
+    "stdout": "  ============================================================\n  MODE: not live \u2014 no order will be sent to the broker this run (pass --live to submit).\n  ============================================================\n  DRY RUN \u2014 the open book is not managed and nothing is closed.\n  DATA FETCH FAILED \u2014 option chain for SPY (option chain request timed out).\n  This is an outage, not a market judgement. No trade.\n"
   }
 }

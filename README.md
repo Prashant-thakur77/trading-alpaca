@@ -229,7 +229,7 @@ made zero subprocess calls, and reproduced the same abstention verbatim.
 
 ## Safety
 
-Seven rules the code enforces, not merely documents:
+Eight rules the code enforces, not merely documents:
 
 1. LLMs never invent strikes, quantities or order parameters.
 2. Every order passes RiskGuard first; any error is DENY.
@@ -240,7 +240,24 @@ Seven rules the code enforces, not merely documents:
    Checked at startup and again before every order. It resolves relative to
    `risk.yaml`'s directory rather than the working directory, so it works
    identically under cron.
-7. No on-chain code, and no unearned numbers (see below).
+7. **Submitting requires an explicit `--live` flag.** `scripts/run_session.py`
+   defaults to *not* submitting — `--dry-run`, no flags, and any malformed or
+   ambiguous combination (e.g. `--live --dry-run` together) all run the whole
+   pipeline (preflight, committee, vetoes, guard, payload) and stop before
+   the broker call. Only `--live` alone sends an order, and it still cannot
+   bypass the kill switch. `make session` — the shortest, most likely to be
+   typed or accidentally triggered command — stays on the safe (no-submit)
+   path; `make session-live` is the explicit, intentional live path.
+   This closes a real incident: on 2026-08-29, backticks inside an unrelated
+   `git commit -m` message were shell-expanded and executed `make session`,
+   which (under the old submit-by-default behaviour) sent a real multi-leg
+   paper order to Alpaca. It never filled (market closed) and was cancelled a
+   minute later — the account verified clean, every guard, veto and journal
+   check behaved correctly, and the journal recorded the incident rather than
+   hiding it. But a command capable of reaching the broker should never be
+   triggerable by a quoting accident in an unrelated shell command, so
+   submitting is now opt-in rather than opt-out.
+8. No on-chain code, and no unearned numbers (see below).
 
 ## Compliance
 
