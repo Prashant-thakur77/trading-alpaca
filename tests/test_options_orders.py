@@ -96,3 +96,53 @@ def test_closing_payload_uses_close_position_intents():
     closing = closing_payload(_credit_spread(), 1, limit_price=0.50)
     for leg in closing["legs"]:
         assert leg["position_intent"] in ("buy_to_close", "sell_to_close")
+
+
+class TestClientOrderId:
+    """Broker-side idempotency (C1).
+
+    The session can legitimately be re-run — a cron tick, an operator retry, a
+    crash after POST. Without a deterministic client_order_id the second run
+    submits a second identical spread and both can fill. Alpaca rejects a
+    duplicate client_order_id, which turns "submit twice" into "one order plus
+    a loud rejection".
+    """
+
+    def test_payload_carries_a_client_order_id(self):
+        assert build_mleg_payload(_credit_spread(), 1)["client_order_id"]
+
+    def test_same_trade_on_the_same_day_yields_the_same_id(self):
+        a = build_mleg_payload(_credit_spread(), 1)["client_order_id"]
+        b = build_mleg_payload(_credit_spread(), 1)["client_order_id"]
+        assert a == b
+
+    def test_downsized_retry_of_the_same_trade_keeps_the_same_id(self):
+        """A guard downsize does not make it a different trade; re-submitting
+        1 contract of a spread already working must still be rejected."""
+        assert (build_mleg_payload(_credit_spread(contracts=3), 3)["client_order_id"]
+                == build_mleg_payload(_credit_spread(contracts=3), 1)["client_order_id"])
+
+    def test_a_different_structure_yields_a_different_id(self):
+        straddle = build_long_straddle(_q(450, "c", 5.00, 5.10), _q(450, "p", 4.00, 4.10))
+        assert (build_mleg_payload(straddle, 1)["client_order_id"]
+                != build_mleg_payload(_credit_spread(), 1)["client_order_id"])
+
+    def test_different_strikes_yield_a_different_id(self):
+        other = build_bull_put_spread(_q(435, "p", 3.00, 3.10), _q(430, "p", 2.00, 2.10))
+        assert (build_mleg_payload(other, 1)["client_order_id"]
+                != build_mleg_payload(_credit_spread(), 1)["client_order_id"])
+
+    def test_id_is_broker_legal_length(self):
+        """Alpaca accepts up to 128 characters."""
+        cid = build_mleg_payload(_credit_spread(), 1)["client_order_id"]
+        assert 0 < len(cid) <= 128
+        assert cid.isalnum()
+
+    def test_id_changes_on_a_new_trading_day(self):
+        """Yesterday's identical spread must not block today's."""
+        import options_orders
+        from datetime import date as real_date
+        today = build_mleg_payload(_credit_spread(), 1)["client_order_id"]
+        tomorrow = options_orders.client_order_id(
+            _credit_spread(), on=real_date.today() + timedelta(days=1))
+        assert today != tomorrow
