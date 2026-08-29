@@ -88,8 +88,5 @@ session:
 session-live:
 	python3 scripts/run_session.py --live
 
-judge:
-	python3 scripts/replay.py --all
-
 clean:
 	rm -rf __pycache__ tests/__pycache__ .pytest_cache logs/*.log
