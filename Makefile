@@ -1,4 +1,4 @@
-.PHONY: help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration judge judge judge-page clean
+.PHONY: site help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration judge judge judge-page clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
@@ -65,6 +65,9 @@ judge:
 
 judge-page:
 	python3 scripts/build_judge_page.py
+
+site:
+	python3 scripts/build_site.py
 
 verify-journal:
 	python3 scripts/verify_journal.py

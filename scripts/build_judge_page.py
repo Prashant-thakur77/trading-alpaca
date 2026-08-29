@@ -68,7 +68,11 @@ h1{font-weight:800;text-transform:uppercase;letter-spacing:-.02em;
 h2{font-weight:800;text-transform:uppercase;letter-spacing:-.01em;font-size:15px}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 
-header{border-bottom:1px solid var(--hair);padding:52px 0 34px}
+header{border-bottom:1px solid var(--hair);padding:34px 0}
+.home{font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--muted);text-decoration:none;
+  display:inline-block;margin-bottom:26px}
+.home:hover{color:var(--ink)}
 .lede{color:var(--dim);max-width:66ch;margin-top:18px;font-size:16px}
 .lede strong{color:var(--ink);font-weight:600}
 
@@ -382,6 +386,7 @@ def build() -> str:
 <style>{CSS}</style>
 
 <header><div class="wrap">
+  <a class="home" href="/">← Trading Alpaca</a>
   <div class="eyebrow">Alpaca AI Trading Agents · Options Alpha</div>
   <h1>The options desk<br>that grades itself</h1>
   <p class="lede">Deterministic code builds every trade. The model's only power is to
