@@ -137,6 +137,44 @@ def _atm_implied_vol(candidates: list[TradeIntent], spot: float) -> float | None
     return None
 
 
+def _iv_minus_realized(atm_iv: float | None, realized_vol: float) -> str:
+    """The IV-vs-realized spread, rendered with its own sign convention spelled out.
+
+    On a real 2026-08-29 cycle the two analysts read the SAME line —
+    "IV_MINUS_REALIZED: -0.69pp" — in opposite directions: the vol analyst
+    called it "a structural edge for short premium", the bear adversary called
+    it "the market underpricing volatility". The bear was right. Implied BELOW
+    realized means options are cheap relative to how much the underlying
+    actually moves, so a premium *seller* collects less than the movement
+    warrants — which argues against short premium, not for it.
+
+    A bare signed number cannot fix that: the reader has to supply the
+    convention, and half the time supplies it backwards. So the definitional
+    meaning is rendered alongside the number. It states only the definition —
+    never which candidate to pick, never whether to trade at all. That
+    judgement is the committee's, and telling it the answer here would make
+    the analysts' agreement meaningless.
+    """
+    if atm_iv is None:
+        return UNAVAILABLE
+
+    points = (atm_iv - realized_vol) * 100
+    rendered = f"{points:+.2f}pp"
+    # Compare the RENDERED value, not the raw float: a spread of -0.001pp
+    # prints as "-0.00pp" and must not be described as BELOW realized.
+    if rendered.startswith("+0.00") or rendered.startswith("-0.00"):
+        return (f"{rendered} (implied is LEVEL with realized — options are priced "
+                f"in line with actual movement, so there is no volatility edge "
+                f"in either direction)")
+    if points > 0:
+        return (f"{rendered} (implied is ABOVE realized — options are rich "
+                f"relative to actual movement, which favours SELLING premium, "
+                f"not buying it)")
+    return (f"{rendered} (implied is BELOW realized — options are cheap "
+            f"relative to actual movement, which favours BUYING premium, "
+            f"not selling it)")
+
+
 def render_snapshot(
     underlying: str,
     spot: float,
@@ -165,11 +203,7 @@ def render_snapshot(
         f"SPOT: {_money(spot)}",
         f"REALIZED_VOL: {_pct(realized_vol)}%",
         f"IMPLIED_VOL_ATM: {f'{_pct(atm_iv)}%' if atm_iv is not None else UNAVAILABLE}",
-        # The decision variable for premium selling: positive = implied is
-        # rich vs realized (favours credit structures), negative = cheap
-        # (favours long vol). In percentage points.
-        f"IV_MINUS_REALIZED: "
-        f"{f'{(atm_iv - realized_vol) * 100:+.2f}pp' if atm_iv is not None else UNAVAILABLE}",
+        f"IV_MINUS_REALIZED: {_iv_minus_realized(atm_iv, realized_vol)}",
         f"CANDIDATES ({len(capped)} of {total}):",
     ]
     for cid, intent in by_id.items():

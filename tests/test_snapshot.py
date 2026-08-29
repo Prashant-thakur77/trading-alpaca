@@ -225,3 +225,53 @@ def test_empty_candidates_still_renders_without_error():
     assert "SPY" in s.text
     assert isinstance(s.text, str)
     assert s.candidates == {}
+
+
+# ---- the IV-vs-realized sign convention must be unmisreadable ----
+#
+# Live run 2026-08-29: vol_analyst and bear_adversary drew OPPOSITE
+# conclusions from the SAME number. The snapshot said
+# "IV_MINUS_REALIZED: -0.69pp"; vol_analyst called that "a structural edge
+# for short premium" while bear_adversary called it "the market underpricing
+# volatility". The bear is right — implied BELOW realized means options are
+# cheap versus how much the underlying actually moves, so a premium SELLER
+# collects less than the movement warrants. The header now renders the signed
+# number AND its definitional meaning, so the sign cannot be read backwards.
+# It deliberately does NOT tell an analyst what to conclude overall.
+
+def test_iv_above_realized_is_labelled_rich_and_favouring_selling():
+    snap = render_snapshot("SPY", 500.0, 0.01, [_bull_put(495, 490)])
+    line = [l for l in snap.text.splitlines()
+            if l.startswith("IV_MINUS_REALIZED:")][0]
+    assert line.startswith("IV_MINUS_REALIZED: +")
+    assert "ABOVE" in line
+    assert "rich" in line.lower()
+    assert "SELLING" in line
+
+
+def test_iv_below_realized_is_labelled_cheap_and_favouring_buying():
+    snap = render_snapshot("SPY", 500.0, 0.90, [_bull_put(495, 490)])
+    line = [l for l in snap.text.splitlines()
+            if l.startswith("IV_MINUS_REALIZED:")][0]
+    assert line.startswith("IV_MINUS_REALIZED: -")
+    assert "BELOW" in line
+    assert "cheap" in line.lower()
+    # the correction: cheap options favour BUYING premium, not selling it
+    assert "BUYING" in line
+    assert "not selling" in line.lower()
+
+
+def test_the_convention_line_never_prescribes_a_verdict():
+    """The header states a definition, not a recommendation. It must not tell
+    the committee which candidate to pick or that it should trade at all."""
+    snap = render_snapshot("SPY", 500.0, 0.90, [_bull_put(495, 490)])
+    line = [l for l in snap.text.splitlines()
+            if l.startswith("IV_MINUS_REALIZED:")][0].lower()
+    for prescription in ("you should", "recommend", "pick ", "abstain"):
+        assert prescription not in line
+
+
+def test_the_sign_convention_line_stays_deterministic():
+    a = render_snapshot("SPY", 500.0, 0.90, [_bull_put(495, 490)])
+    b = render_snapshot("SPY", 500.0, 0.90, [_bull_put(495, 490)])
+    assert a.text == b.text

@@ -51,6 +51,22 @@ class AnalystView:
     prompt_hash: str
 
 
+# Restated verbatim in both analyst prompts. On a real 2026-08-29 cycle the
+# two analysts read the identical "IV_MINUS_REALIZED: -0.69pp" line in
+# opposite directions — one as "a structural edge for short premium", the
+# other as "the market underpricing volatility". Only the second is correct.
+# The snapshot header now carries the same definition; repeating it inside
+# each prompt means a model that skims the header still cannot invert the
+# sign. It is a definition, never a recommendation: what to conclude overall
+# remains the analyst's job, or this stops being an independent view.
+_IV_SIGN_CONVENTION = """DEFINITION — IV_MINUS_REALIZED is implied volatility \
+minus realized volatility, in percentage points. A POSITIVE value means \
+implied is ABOVE realized: options are rich relative to how much the \
+underlying actually moves, which favours SELLING premium. A NEGATIVE value \
+means implied is BELOW realized: options are cheap relative to actual \
+movement, which favours BUYING premium. Read the sign exactly as defined \
+here; do not restate it as its opposite."""
+
 _VOL_ANALYST_PROMPT = """You are the volatility analyst on a defined-risk US-equity \
 options desk. You are given a market snapshot and a fixed list of \
 already-built candidate spreads/structures (you cannot invent one).
@@ -61,6 +77,8 @@ volatility, and whether the snapshot favours a premium-selling structure \
 Weigh: the realized-vs-implied spread, IV rank if inferable, term structure, \
 and liquidity (open interest, quote width) of the candidates shown. Also \
 consider assignment risk and any event-calendar risk implied by the DTE.
+
+{iv_sign_convention}
 
 Respond with ONLY a JSON object, no prose outside it:
 {{"probability": <0.0-1.0, P the favoured structure is profitable>, \
@@ -84,6 +102,8 @@ thin enough to make an exit expensive, and whether realized volatility \
 suggests the move needed to breach a breakeven is plausible within the DTE \
 window.
 
+{iv_sign_convention}
+
 Respond with ONLY a JSON object, no prose outside it:
 {{"probability": <0.0-1.0, P the favoured structure is STILL profitable \
 despite your case against it>, "reasoning": "<your strongest bearish case, \
@@ -94,6 +114,15 @@ If you cannot form a view from the data given, respond instead with:
 MARKET SNAPSHOT:
 {snapshot}
 """
+
+# Substituted here rather than at call time: `.format(snapshot=...)` is what
+# every caller uses, and the JSON examples above rely on doubled braces, so a
+# second format pass would collapse them. `replace` leaves the finished
+# prompts with exactly one remaining placeholder, `{snapshot}`.
+_VOL_ANALYST_PROMPT = _VOL_ANALYST_PROMPT.replace(
+    "{iv_sign_convention}", _IV_SIGN_CONVENTION)
+_BEAR_ADVERSARY_PROMPT = _BEAR_ADVERSARY_PROMPT.replace(
+    "{iv_sign_convention}", _IV_SIGN_CONVENTION)
 
 ANALYST_MODEL = "claude-haiku-4-5"
 

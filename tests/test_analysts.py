@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import time
 
 from llm.client import LLMResponse
+from committee import analysts
 from committee.analysts import (
     AnalystView, vol_analyst, bear_adversary, aggregate, run_analysts,
 )
@@ -206,3 +207,40 @@ def test_aggregate_mean_of_two_active_views():
 
 def test_aggregate_empty_list_returns_none():
     assert aggregate([]) is None
+
+
+# ---- the IV sign convention is stated in every analyst prompt ----
+#
+# Two analysts read "IV_MINUS_REALIZED: -0.69pp" in opposite directions on a
+# real 2026-08-29 run. The snapshot header now carries the definition; each
+# prompt restates it so a model that skims the header still cannot invert it.
+
+class TestIVSignConvention:
+    PROMPTS = (analysts._VOL_ANALYST_PROMPT, analysts._BEAR_ADVERSARY_PROMPT)
+
+    def test_every_analyst_prompt_defines_the_iv_minus_realized_sign(self):
+        for prompt in self.PROMPTS:
+            assert "IV_MINUS_REALIZED" in prompt
+            assert "ABOVE" in prompt and "BELOW" in prompt
+            assert "rich" in prompt.lower() and "cheap" in prompt.lower()
+
+    def test_the_convention_block_is_embedded_verbatim_in_both_prompts(self):
+        for prompt in self.PROMPTS:
+            assert analysts._IV_SIGN_CONVENTION in prompt
+
+    def test_the_convention_binds_rich_to_selling_and_cheap_to_buying(self):
+        # "rich ... favours SELLING", "cheap ... favours BUYING" — the exact
+        # pairing the 2026-08-29 live run inverted.
+        body = analysts._IV_SIGN_CONVENTION.lower()
+        rich_at, cheap_at = body.index("rich"), body.index("cheap")
+        assert "sell" in body[rich_at:cheap_at]
+        assert "buy" in body[cheap_at:]
+        assert "buy" not in body[rich_at:cheap_at]
+
+    def test_no_analyst_prompt_prescribes_a_conclusion(self):
+        """State the definition; never state the verdict."""
+        for prompt in self.PROMPTS:
+            body = prompt.lower()
+            assert "you should sell" not in body
+            assert "you should buy" not in body
+            assert "always abstain" not in body
