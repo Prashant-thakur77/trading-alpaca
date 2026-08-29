@@ -111,11 +111,28 @@ exists and runs today.
   with its prompt, raw response and parse result. One artifact serves as cost
   saver, audit record and deterministic replay corpus — a replayed cycle costs
   $0.00 and reproduces the decision verbatim.
+- **The desk grades itself: a Brier calibration loop, built and tested, but
+  honestly dormant.** `calibration.py` scores each analyst's `analyst_view`
+  predictions against their eventual outcome (correlated by the cycle's
+  `snapshot_hash`) with the standard Brier score, and turns that into a
+  voting weight — unproven analysts (< 10 resolved predictions) stay at 1.0,
+  a better-calibrated analyst outweighs a confidently-wrong one, and a
+  demoted analyst floors at 0.2 rather than being silenced, so it always has
+  a path back. `committee/analysts.py`'s `aggregate()` already accepts these
+  weights (`weights=None` stays byte-identical to equal-weighting — a
+  regression test enforces it). `make calibration` prints the live report.
+  **What is not yet true:** nothing in this codebase journals a closing
+  trade entry with realized P&L yet (exit monitoring is a later phase), so
+  `make calibration` against the real journal today correctly reports zero
+  resolved predictions and every weight at 1.0 — the report says this
+  outright rather than printing zeros that could pass for a score. The
+  weights are also not yet plugged into `decide()`'s live aggregation call.
+  31 tests (`tests/test_calibration.py`, `tests/test_calibration_report.py`)
+  cover the arithmetic, the correlation, the floor, and the honesty of the
+  report's language.
 
 **Planned, not yet built** — listed so this section is not read as shipped:
 
-- *Calibration loop:* Brier-scoring analysts over resolved outcomes so a
-  miscalibrated analyst loses voting weight.
 - *Pre-mortem:* compiling "what would have to be true for this to lose" into
   deterministic exit triggers.
 

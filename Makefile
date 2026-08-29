@@ -1,4 +1,4 @@
-.PHONY: help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session clean
+.PHONY: help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session calibration clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
@@ -14,6 +14,7 @@ help: ## Show available commands
 	@echo "  make validate-json  Audit report as JSON"
 	@echo "  make verify       Verify Merkle integrity of validation artifacts"
 	@echo "  make verify-journal  Verify hash chain of the decision journal"
+	@echo "  make calibration  Per-analyst Brier calibration report"
 	@echo "  make check-account   Verify Alpaca paper account is set up correctly"
 	@echo "  make walkforward  Run walk-forward OOS validation (needs Alpaca keys)"
 	@echo "  make session-dry  Run one session cycle, no order sent"
@@ -59,6 +60,9 @@ walkforward:
 
 verify-journal:
 	python3 scripts/verify_journal.py
+
+calibration:
+	python3 scripts/calibration_report.py
 
 session-dry:
 	python3 scripts/run_session.py --dry-run
