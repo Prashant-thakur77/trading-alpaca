@@ -121,10 +121,27 @@ make session-dry            # full pipeline against live data — sends nothing
 make test                   # the suite
 ```
 
-`make session-dry` output on a real chain:
+`make session-dry` output on a real chain, with the committee live
+(SPY, 2026-08-29 — abridged reasoning):
 
 ```
 SPY spot $769.35 — 632 candidate(s)
+mode: LLM COMMITTEE — vol_analyst + bear_adversary -> trader -> thesis veto + blind veto
+committee:
+  vol_analyst      p=0.32 — IV is 0.69pp below realized vol ... all 12 candidates
+                            are bear call spreads, the anti-favored structure type.
+  bear_adversary   p=0.38 — we're selling premium that underprices actual movement;
+                            bear calls are the wrong direction for that regime.
+  aggregate probability: 0.35
+  trader: ABSTAIN — ... no candidate clears the bar.
+ABSTAIN: committee abstained — trader abstained: IV is below realized vol, which
+favors buying premium, but every candidate this cycle is a bear call credit spread.
+```
+
+That is a refusal, and it exits 0. When the committee does name a candidate, the
+run continues into the Greeks, the guard verdict and the exact wire payload:
+
+```
 Selected bear_call_spread: credit $2.83, max loss $217.00
 position greeks: delta -8.0, vega +0.3
 book: 0 position(s), delta +0.0, vega +0.0, day P&L $+0.00, 0 consecutive loss(es)
@@ -134,6 +151,17 @@ DRY RUN — no order sent.
 ```
 
 The negative limit price is Alpaca's convention for a net credit received.
+
+**`--no-llm`** runs the identical pipeline with a deterministic selector (most
+credit per dollar risked) instead of the committee, inside the same RiskGuard.
+It exists so a live session survives a Claude rate limit: the desk degrades to a
+dumber selector rather than going dark. The active mode is printed every cycle.
+
+Every LLM call is keyed by `sha256(model, prompt)` and cached to
+`logs/prompt_cache/` with its prompt, model, raw response, parsed result and
+error. That one artifact is the cost saver, the audit record and the
+deterministic-replay corpus at once — replaying the cycle above cost $0.00 and
+made zero subprocess calls, and reproduced the same abstention verbatim.
 
 ---
 
