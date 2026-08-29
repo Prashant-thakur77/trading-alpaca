@@ -121,6 +121,15 @@ def consecutive_losses(entries: list[dict]) -> int:
     """Length of the trailing run of losing closed trades in the journal.
 
     Zero when nothing has closed yet — an honest zero, not an assumption.
+
+    INERT IN PRODUCTION as of Plan 1: this derivation is correct and
+    covered by tests, but no writer in this codebase yet journals a "close"
+    (or "exit") entry carrying realized_pnl — exit monitoring lands in
+    Plan 2. Until then this always reads 0 in a live session, so risk.yaml's
+    "3 consecutive losers halves size" limit never fires. The 2% daily-loss
+    halt is the live backstop in the meantime: it is derived from
+    equity - last_equity (see daily_pnl()), so it captures open P&L too and
+    does not depend on any close entry existing.
     """
     run = 0
     for entry in reversed(entries):
@@ -530,6 +539,12 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None) -> int:
         net_delta=net_delta,
         net_vega=net_vega,
         daily_realized_pnl=day_pnl,
+        # INERT until Plan 2: no writer yet journals a "close"/"exit" entry
+        # carrying realized_pnl, so this reads 0 every cycle and the 3-loser
+        # halving never fires in production. See consecutive_losses()
+        # docstring. The 2% daily-loss halt above (day_pnl) is the live
+        # backstop — it uses equity - last_equity, so it catches open P&L
+        # too and does not depend on any close entry existing.
         consecutive_losses=consecutive_losses(entries),
         new_today_by_underlying=opened_today_by_underlying(
             entries, working, datetime.now(timezone.utc).date()),
@@ -556,9 +571,25 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None) -> int:
         return EXIT_OK
 
     if not verdict.is_tradeable:
-        # Say it here too, so the operator sees the refusal without reading
-        # the journal. The executor re-evaluates and journals it.
+        # Stop here — do not fall through to executor.submit(), which
+        # re-evaluates the guard from scratch (including the kill switch).
+        # If the kill switch were lifted between this evaluate() and that
+        # one, falling through would submit an order right after printing a
+        # refusal. Journal the verdict directly instead, mirroring what
+        # executor.submit() would have recorded, so the refusal is still
+        # auditable (hard rule 5) without a second evaluation.
         print("  Guard refuses this candidate.")
+        try:
+            journal.append("verdict", {
+                "underlying": chosen.underlying,
+                "structure": chosen.structure,
+                "decision": getattr(verdict.decision, "value", str(verdict.decision)),
+                "reason": verdict.reason,
+                "approved_contracts": verdict.approved_contracts,
+            })
+        except Exception as e:
+            logger.error("Could not journal the guard verdict: %s", e, exc_info=True)
+        return EXIT_OK
 
     executor = OptionsExecutor(cli, guard, journal)
     result = executor.submit(chosen, state,

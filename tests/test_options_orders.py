@@ -1,5 +1,5 @@
 import os, sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from candidate_builder import OptionQuote, build_bull_put_spread, build_long_straddle
@@ -146,3 +146,38 @@ class TestClientOrderId:
         tomorrow = options_orders.client_order_id(
             _credit_spread(), on=real_date.today() + timedelta(days=1))
         assert today != tomorrow
+
+    def test_default_id_tracks_utc_date_not_local_date(self, monkeypatch):
+        """Load-bearing: the live session runs 19:00-01:30 IST, straddling
+        LOCAL midnight, while the per-day submission cap in
+        scripts/run_session.py is keyed on the UTC date. If the default id
+        followed the local calendar date, the broker-side idempotency key
+        would silently change mid-session while the UTC day has not —
+        exactly the window where duplicate-order protection matters most.
+
+        Freeze datetime.now(utc) to one instant and let the local date
+        "advance" across the two calls: with the fix, the id must not move,
+        because it must never consult the local date at all.
+        """
+        import options_orders as oo
+
+        fixed_utc = datetime(2026, 8, 29, 19, 0, tzinfo=timezone.utc)
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_utc
+
+        local_dates = iter([date(2026, 8, 29), date(2026, 8, 30)])
+
+        class FrozenDate(date):
+            @classmethod
+            def today(cls):
+                return next(local_dates)
+
+        monkeypatch.setattr(oo, "datetime", FrozenDateTime, raising=False)
+        monkeypatch.setattr(oo, "date", FrozenDate)
+
+        a = build_mleg_payload(_credit_spread(), 1)["client_order_id"]
+        b = build_mleg_payload(_credit_spread(), 1)["client_order_id"]
+        assert a == b

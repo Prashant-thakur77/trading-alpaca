@@ -357,6 +357,31 @@ class TestPortfolioStateIsDerived:
         assert "abstain" in capsys.readouterr().out.lower()
 
 
+# ── guard refusal must short-circuit, not fall through ───────
+
+class TestGuardRefusalShortCircuits:
+    def test_a_guard_refusal_never_reaches_executor_submit(self, bench, monkeypatch, capsys):
+        """TOCTOU guard: previously, printing "Guard refuses this candidate"
+        was followed unconditionally by executor.submit(), which
+        re-evaluates the guard from scratch. If the kill switch were lifted
+        between the two evaluate() calls, that fall-through would submit an
+        order right after printing a refusal. Prove submit() is never
+        called at all once the pre-check has already refused."""
+        import run_session as rs
+
+        def _boom(self, *a, **k):
+            raise AssertionError("executor.submit() must not be reached "
+                                  "after a pre-check guard refusal")
+        monkeypatch.setattr(rs.OptionsExecutor, "submit", _boom)
+
+        cli = FakeCLI(account={"options_trading_level": 3,
+                               "equity": "97000", "last_equity": "100000"})
+        bench.journal.append("fill", {"underlying": "QQQ", "structure": "iron_condor"})
+        assert bench(cli=cli) == 0
+        assert cli.posted == []
+        assert "guard refuses" in capsys.readouterr().out.lower()
+
+
 # ── I5: positions vs legs ────────────────────────────────────
 
 class TestPositionCounting:

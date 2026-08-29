@@ -10,7 +10,7 @@ encoded, and encoding them wrong is silently expensive:
     received. Closing a debit spread therefore takes a negative limit price.
 """
 import hashlib
-from datetime import date
+from datetime import date, datetime, timezone
 
 from candidate_builder import TradeIntent
 
@@ -60,12 +60,18 @@ def client_order_id(intent: TradeIntent, on: date | None = None) -> str:
     leg symbols, date. Contract count is excluded, because a downsized retry of
     a spread already working is the same trade, not a new one; and the date is
     included so yesterday's identical spread cannot block today's.
+
+    The date is UTC, not local — never `date.today()`. The live session runs
+    19:00-01:30 IST, which straddles LOCAL midnight while the per-day cap in
+    scripts/run_session.py is keyed on the UTC date; a local-date id would
+    silently change mid-session while the UTC day has not, in exactly the
+    window where broker-side duplicate-order protection matters most.
     """
     key = "|".join((
         intent.underlying,
         intent.structure,
         "|".join(sorted(leg.quote.symbol for leg in intent.legs)),
-        (on or date.today()).isoformat(),
+        (on or datetime.now(timezone.utc).date()).isoformat(),
     ))
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:CLIENT_ORDER_ID_CHARS]
 

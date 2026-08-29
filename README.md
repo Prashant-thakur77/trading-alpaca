@@ -16,3 +16,14 @@ only the deterministic `alpaca_cli.py` path can submit orders.
 
 See `docs/COMPLIANCE.md` for verified evidence (CLI account check, MCP server
 `--help` output, account provenance).
+
+## Kill switch
+
+Hard rule 6: to halt all trading immediately, either create a file named
+`KILL_SWITCH` in the repo root, or set the environment variable `KILL=1`.
+
+It is checked at startup and again before every order, so a session already
+running stops before its next submission. The `KILL_SWITCH` file resolves
+relative to `risk.yaml`'s own directory, not the process's current working
+directory — so it works the same way whether the session is launched from a
+shell in the repo, or from cron/systemd with an unrelated working directory.
