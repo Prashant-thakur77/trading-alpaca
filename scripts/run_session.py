@@ -36,8 +36,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from alpaca_cli import AlpacaCLI
 from analytics import (
-    CONTRACT_MULTIPLIER, greeks, implied_vol, position_greeks, time_to_expiry_years,
+    CONTRACT_MULTIPLIER, greeks, implied_vol, position_greeks,
+    realized_volatility, time_to_expiry_years,
 )
+from committee.decide import ABSTAIN, CommitteeDecision
+from committee.decide import decide as committee_decide
 from candidate_builder import (
     build_bear_call_spread, build_bull_put_spread, build_long_straddle,
 )
@@ -47,7 +50,12 @@ from options_orders import build_mleg_payload
 from risk_guard import PortfolioState, RiskGuard, load_risk_config
 
 logger = logging.getLogger(__name__)
-JOURNAL_PATH = Path(__file__).resolve().parent.parent / "logs" / "journal.jsonl"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+JOURNAL_PATH = REPO_ROOT / "logs" / "journal.jsonl"
+# The prompt cache is the cost saver, the audit record AND the replay corpus
+# the /judge page reads back, so it lives on disk beside the journal rather
+# than in a temp dir that a reboot would erase.
+PROMPT_CACHE_DIR = REPO_ROOT / "logs" / "prompt_cache"
 
 # Exit codes. 0 is "the cycle completed" — including a deliberate abstention,
 # which is a first-class outcome (hard rule 4). Anything else means the cycle
@@ -352,6 +360,76 @@ def _build_candidates_for_expiry(chain, spot: float, width: float) -> list:
     return candidates
 
 
+# ── candidate selection: the committee, or the deterministic fallback ──
+
+def best_by_credit_ratio(candidates: list):
+    """The deterministic selector: most credit per dollar risked.
+
+    This is what ran before the committee was wired in, and it is what
+    `--no-llm` still runs. It is not a placeholder any more — it is the
+    fallback that keeps the desk able to trade when the LLM is unavailable.
+    """
+    return max(candidates, key=lambda c: c.net_credit / max(c.max_loss, 1e-9))
+
+
+def _default_committee(underlying, spot, realized_vol, candidates, journal):
+    """The production committee: `committee.decide.decide` with the on-disk
+    prompt cache attached. Kept as a named function so `main` can take an
+    injected committee in tests without the suite ever touching the network
+    or creating a cache directory in the repo."""
+    from llm.cache import PromptCache
+    return committee_decide(underlying, spot, realized_vol, candidates, journal,
+                            cache=PromptCache(PROMPT_CACHE_DIR))
+
+
+def _failed_committee(reason: str) -> CommitteeDecision:
+    """A committee that could not run is an abstention, never a fall-through.
+
+    `decide()` already folds every internal failure into an abstention, so
+    reaching here means the committee itself was unavailable (an injected
+    one, an import failure, an OOM). Fail closed identically.
+    """
+    return CommitteeDecision(
+        chosen=None, choice_id=ABSTAIN, views=(), aggregate_probability=None,
+        trader_reasoning="", thesis_ok=False, thesis_reason=reason,
+        blind_ok=False, blind_reason=reason, snapshot_hash="",
+        abstain_reason=reason,
+    )
+
+
+def run_committee(committee, underlying, spot, realized_vol, candidates,
+                  journal) -> CommitteeDecision:
+    """Call the committee, converting any escape into an abstention."""
+    try:
+        decision = committee(underlying, spot, realized_vol, candidates, journal)
+    except Exception as e:  # noqa: BLE001 - a broken committee must not trade
+        logger.error("Committee failed: %s", e, exc_info=True)
+        return _failed_committee(f"the committee could not run "
+                                 f"({type(e).__name__}: {e})")
+    if decision is None:
+        return _failed_committee("the committee returned nothing")
+    return decision
+
+
+def print_committee(decision: CommitteeDecision) -> None:
+    """Print the whole reasoning chain: a judge watching the screen should be
+    able to follow it from each analyst's view to both veto verdicts."""
+    print("  committee:")
+    for view in decision.views:
+        if view.abstained:
+            print(f"    {view.role:<16} ABSTAINED — {view.abstain_reason}")
+        else:
+            print(f"    {view.role:<16} p={view.probability:.2f} — {view.reasoning}")
+    aggregate = decision.aggregate_probability
+    print(f"    aggregate probability: "
+          f"{'none — every analyst abstained' if aggregate is None else f'{aggregate:.2f}'}")
+    print(f"    trader: {decision.choice_id} — {decision.trader_reasoning or '(no reasoning given)'}")
+    print(f"    veto thesis: {'PASS' if decision.thesis_ok else 'VETO'} — "
+          f"{decision.thesis_reason}")
+    print(f"    veto blind:  {'PASS' if decision.blind_ok else 'VETO'} — "
+          f"{decision.blind_reason}")
+
+
 # ── session ──────────────────────────────────────────────────
 
 def _spot_lookup(data, seed: dict[str, float]):
@@ -403,11 +481,18 @@ def _load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
-def main(argv=None, *, cli=None, data=None, journal=None, guard=None) -> int:
-    _load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
+         committee=None) -> int:
+    _load_dotenv(REPO_ROOT / ".env")
     parser = argparse.ArgumentParser(description="Run one options session cycle")
     parser.add_argument("--symbol", default="SPY")
     parser.add_argument("--dry-run", action="store_true", help="Never send an order")
+    parser.add_argument(
+        "--no-llm", action="store_true",
+        help="Skip the LLM committee and select deterministically (most credit "
+             "per dollar risked). The escape hatch for a live session: if Claude "
+             "is rate-limited or down, the desk still trades inside the same "
+             "RiskGuard rather than being dead.")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
     symbol = args.symbol.upper()
@@ -503,8 +588,31 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None) -> int:
         return _abstain(journal, "no candidate passed the liquidity gate",
                         {"underlying": symbol}, args.dry_run)
 
-    # Deterministic placeholder for the committee: best credit per dollar risked.
-    chosen = max(candidates, key=lambda c: c.net_credit / max(c.max_loss, 1e-9))
+    # ── selection: the committee proposes, RiskGuard disposes ──
+    if args.no_llm:
+        print("  mode: DETERMINISTIC (--no-llm) — no LLM in the loop; "
+              "selecting the most credit per dollar risked")
+        chosen = best_by_credit_ratio(candidates)
+    else:
+        print("  mode: LLM COMMITTEE — vol_analyst + bear_adversary -> trader "
+              "-> thesis veto + blind veto")
+        decision = run_committee(
+            committee or _default_committee, symbol, spot,
+            realized_volatility(bars), candidates,
+            # A dry run is a rehearsal and stays out of the judged chain, the
+            # same rule `_abstain(dry_run=True)` already follows. In a live
+            # run the committee journals every stage itself (hard rule 5).
+            None if args.dry_run else journal,
+        )
+        print_committee(decision)
+        if decision.chosen is None:
+            # A refusal is a normal outcome, not a failure: exit 0.
+            return _abstain(journal, f"committee abstained — {decision.abstain_reason}",
+                            {"underlying": symbol,
+                             "snapshot_hash": decision.snapshot_hash},
+                            args.dry_run)
+        chosen = decision.chosen
+
     print(f"  Selected {chosen.structure}: credit ${chosen.net_credit:.2f}, "
           f"max loss ${chosen.max_loss:,.2f}")
 

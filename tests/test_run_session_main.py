@@ -124,7 +124,14 @@ def bench(tmp_path, monkeypatch):
     journal = Journal(tmp_path / "journal.jsonl")
 
     def run(cli=None, data=None, argv=None):
-        return run_session.main(argv or [], cli=cli or FakeCLI(),
+        # --no-llm pins these tests to the deterministic spine they were
+        # written against. Every test using this fixture is about preflight,
+        # the guard or portfolio-state derivation — none is about candidate
+        # selection — so the selector they run under is incidental, while
+        # letting the real committee run would put `claude -p` subprocess
+        # calls in the suite. The committee path has its own fixture
+        # (`llm_bench`) and its own tests further down.
+        return run_session.main(["--no-llm", *(argv or [])], cli=cli or FakeCLI(),
                                 data=data or FakeData(), journal=journal,
                                 guard=guard)
 
@@ -495,3 +502,257 @@ class TestHelpers:
     def test_book_greeks_returns_none_without_a_spot(self):
         rows = [{"symbol": _occ(445, "p"), "qty": "1", "market_value": "500"}]
         assert run_session.book_greeks(rows, lambda root: None) is None
+
+
+# ── the LLM committee is actually in the loop ────────────────
+#
+# committee/ was built, tested and verified against real Claude calls — and
+# scripts/run_session.py never called it. The agentic layer was a library
+# nobody invoked, and the session still picked by a deterministic
+# credit/max-loss ratio. These tests hold that wiring in place.
+#
+# Note on the `bench` fixture above: it now prepends --no-llm, so every test
+# before this point exercises the deterministic spine exactly as it always
+# did. Those tests are about preflight, the guard and portfolio-state
+# derivation — none of them is about candidate selection — so pinning them to
+# the deterministic selector preserves what they were written to prove while
+# keeping the network out of the suite. The committee path is covered here,
+# with an injected committee.
+
+from committee.decide import ABSTAIN, CommitteeDecision
+
+
+def _decision(chosen=None, *, choice_id=ABSTAIN, abstain_reason="",
+              aggregate=0.62, views=(), trader_reasoning="best risk/reward",
+              thesis=(True, "net delta consistent with the thesis"),
+              blind=(True, "reads fine")):
+    return CommitteeDecision(
+        chosen=chosen, choice_id=choice_id, views=tuple(views),
+        aggregate_probability=aggregate, trader_reasoning=trader_reasoning,
+        thesis_ok=thesis[0], thesis_reason=thesis[1],
+        blind_ok=blind[0], blind_reason=blind[1],
+        snapshot_hash="f" * 64, abstain_reason=abstain_reason,
+    )
+
+
+def _views(vol_p=0.62, bear_abstains=False):
+    from committee.analysts import AnalystView
+    return (
+        AnalystView("vol_analyst", vol_p, False, "", "implied is below realized",
+                    "claude-haiku-4-5", "a" * 64),
+        AnalystView("bear_adversary", None, True, "no event calendar given", "",
+                    "claude-haiku-4-5", "b" * 64) if bear_abstains else
+        AnalystView("bear_adversary", 0.44, False, "", "gap risk into the print",
+                    "claude-haiku-4-5", "b" * 64),
+    )
+
+
+def _spreads(candidates):
+    """Credit spreads only — the fake chain's straddle has an unpriceable leg,
+    so its Greeks are unmeasurable and the session abstains before the guard.
+    That abstention is its own (already covered) behaviour, not what these
+    selection tests are about."""
+    return [c for c in candidates if c.structure != "long_straddle"]
+
+
+class FakeCommittee:
+    """Injected in place of committee.decide.decide. Records its inputs."""
+
+    def __init__(self, decision=None, error=None, pick=None):
+        self.decision, self.error, self.pick = decision, error, pick
+        self.calls = []
+
+    def __call__(self, underlying, spot, realized_vol, candidates, journal):
+        self.calls.append({"underlying": underlying, "spot": spot,
+                           "realized_vol": realized_vol,
+                           "candidates": candidates, "journal": journal})
+        if self.error:
+            raise self.error
+        if self.pick is not None:
+            chosen = self.pick(candidates)
+            return _decision(chosen, choice_id="c1", views=_views())
+        return self.decision if self.decision is not None else _decision(
+            abstain_reason="the committee found no edge", views=_views())
+
+
+@pytest.fixture
+def llm_bench(tmp_path, monkeypatch):
+    """Like `bench`, but the committee is IN the loop (no --no-llm)."""
+    monkeypatch.delenv("KILL", raising=False)
+    shutil.copy(RISK_YAML, tmp_path / "risk.yaml")
+    guard = RiskGuard(load_risk_config(tmp_path / "risk.yaml"))
+    journal = Journal(tmp_path / "journal.jsonl")
+
+    def run(committee, cli=None, data=None, argv=None):
+        return run_session.main(argv or [], cli=cli or FakeCLI(),
+                                data=data or FakeData(), journal=journal,
+                                guard=guard, committee=committee)
+
+    run.guard, run.journal, run.tmp_path = guard, journal, tmp_path
+    return run
+
+
+class TestCommitteeIsWired:
+    def test_the_committee_is_called_by_default(self, llm_bench):
+        committee = FakeCommittee(pick=lambda c: c[0])
+        llm_bench(committee)
+        assert len(committee.calls) == 1
+
+    def test_the_committee_receives_the_built_candidates_and_live_state(self, llm_bench):
+        committee = FakeCommittee(pick=lambda c: c[0])
+        llm_bench(committee)
+        call = committee.calls[0]
+        assert call["underlying"] == "SPY"
+        assert call["spot"] == 450.0
+        assert call["candidates"], "the committee must see the deterministic candidates"
+        assert isinstance(call["realized_vol"], float)
+
+    def test_the_committees_choice_is_the_order_that_is_sent(self, llm_bench):
+        """Not the highest-credit candidate — the one the committee named."""
+        picked = {}
+
+        def pick(candidates):
+            # A credit spread other than the ratio-best one, so this test
+            # fails if the session quietly re-selects for itself.
+            best = run_session.best_by_credit_ratio(candidates)
+            chosen = next(c for c in _spreads(candidates) if c is not best)
+            picked["intent"] = chosen
+            return chosen
+
+        cli = FakeCLI()
+        assert llm_bench(FakeCommittee(pick=pick), cli=cli) == 0
+        assert len(cli.posted) == 1
+        sent = {leg["symbol"] for leg in cli.posted[0]["legs"]}
+        assert sent == {leg.quote.symbol for leg in picked["intent"].legs}
+
+    def test_the_deterministic_and_committee_paths_can_disagree(self, llm_bench, bench):
+        """If they always agreed, the wiring would be untestable — and
+        pointless. The committee must be able to pick a different trade."""
+        seen = {}
+
+        def pick(candidates):
+            seen["best"] = run_session.best_by_credit_ratio(candidates)
+            # A DIFFERENT spread from the deterministic pick, by identity.
+            seen["other"] = next(c for c in _spreads(candidates)
+                                 if c is not seen["best"])
+            return seen["other"]
+
+        cli = FakeCLI()
+        llm_bench(FakeCommittee(pick=pick), cli=cli)
+        assert seen["other"] is not seen["best"]
+        assert len(cli.posted) == 1
+
+    def test_the_guard_still_runs_on_whatever_the_committee_chose(self, llm_bench, capsys):
+        """The committee proposes; RiskGuard disposes. A committee choice must
+        never reach the broker without a verdict."""
+        cli = FakeCLI()
+        llm_bench(FakeCommittee(pick=lambda c: c[0]), cli=cli)
+        assert "guard:" in capsys.readouterr().out
+
+    def test_a_committee_choice_the_guard_denies_is_never_sent(self, llm_bench, capsys):
+        cli = FakeCLI(account={"options_trading_level": 3,
+                               "equity": "97000", "last_equity": "100000"})
+        llm_bench.journal.append("fill", {"underlying": "QQQ", "structure": "iron_condor"})
+        assert llm_bench(FakeCommittee(pick=lambda c: c[0]), cli=cli) == 0
+        assert cli.posted == []
+        assert "guard refuses" in capsys.readouterr().out.lower()
+
+
+class TestCommitteeAbstention:
+    def test_an_abstention_is_exit_zero_with_the_reason_printed(self, llm_bench, capsys):
+        """An ABSTAIN is a normal outcome, not a failure."""
+        cli = FakeCLI()
+        committee = FakeCommittee(_decision(
+            abstain_reason="c1 (bull_put_spread) vetoed — blind review: gap risk"))
+        assert llm_bench(committee, cli=cli) == 0
+        assert cli.posted == []
+        out = capsys.readouterr().out
+        assert "abstain" in out.lower()
+        assert "gap risk" in out
+
+    def test_a_committee_that_raises_abstains_rather_than_crashing(self, llm_bench, capsys):
+        cli = FakeCLI()
+        committee = FakeCommittee(error=RuntimeError("claude is rate limited"))
+        assert llm_bench(committee, cli=cli) == 0
+        assert cli.posted == [], "a broken committee must never fall through to trading"
+        assert "abstain" in capsys.readouterr().out.lower()
+
+    def test_an_abstention_is_journalled(self, llm_bench):
+        before = len(llm_bench.journal.entries())
+        llm_bench(FakeCommittee(_decision(abstain_reason="no edge")))
+        assert len(llm_bench.journal.entries()) > before
+
+
+class TestNoLLMFallback:
+    def test_no_llm_never_calls_the_committee(self, llm_bench):
+        """Monday's escape hatch: if Claude rate-limits mid-session the desk
+        must still be able to trade rather than being dead."""
+        committee = FakeCommittee(pick=lambda c: c[0])
+        cli = FakeCLI()
+        assert llm_bench(committee, cli=cli, argv=["--no-llm"]) == 0
+        assert committee.calls == []
+        assert len(cli.posted) == 1
+
+    def test_no_llm_reproduces_the_deterministic_selection(self, llm_bench, capsys):
+        assert llm_bench(FakeCommittee(), argv=["--no-llm", "--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "Selected" in out
+
+    def test_the_active_mode_is_printed_in_both_modes(self, llm_bench, capsys):
+        llm_bench(FakeCommittee(pick=lambda c: c[0]), argv=["--dry-run"])
+        llm_out = capsys.readouterr().out
+        assert "COMMITTEE" in llm_out.upper()
+
+        llm_bench(FakeCommittee(), argv=["--no-llm", "--dry-run"])
+        det_out = capsys.readouterr().out
+        assert "DETERMINISTIC" in det_out.upper()
+        assert "--no-llm" in det_out
+
+
+class TestCommitteeDryRun:
+    def test_the_dry_run_shows_the_whole_reasoning_chain(self, llm_bench, capsys):
+        """A judge watching the screen must see every link: each analyst's
+        probability or abstention, the aggregate, the trader's choice and
+        reasoning, both veto results, the guard verdict and the payload."""
+        committee = FakeCommittee(pick=lambda c: c[0])
+        committee.decision = None
+        assert llm_bench(committee, argv=["--dry-run"]) == 0
+        out = capsys.readouterr().out
+
+        assert "vol_analyst" in out and "0.62" in out
+        assert "bear_adversary" in out and "0.44" in out
+        assert "implied is below realized" in out
+        assert "gap risk into the print" in out
+        assert "aggregate" in out.lower()
+        assert "trader" in out.lower() and "best risk/reward" in out
+        assert "thesis" in out.lower() and "blind" in out.lower()
+        assert "guard:" in out
+        assert "client_order_id" in out and "mleg" in out
+        assert "DRY RUN" in out
+
+    def test_an_abstaining_analyst_is_shown_as_abstained_not_as_zero(self, llm_bench, capsys):
+        committee = FakeCommittee(_decision(
+            abstain_reason="no edge", views=_views(bear_abstains=True)))
+        llm_bench(committee, argv=["--dry-run"])
+        out = capsys.readouterr().out
+        assert "bear_adversary" in out
+        assert "ABSTAIN" in out
+        assert "no event calendar given" in out
+        assert "0.00" not in out.split("bear_adversary")[1].split("\n")[0]
+
+    def test_a_failed_veto_is_shown_as_failed(self, llm_bench, capsys):
+        committee = FakeCommittee(_decision(
+            abstain_reason="vetoed", views=_views(),
+            blind=(False, "the breakeven is one gap away")))
+        llm_bench(committee, argv=["--dry-run"])
+        out = capsys.readouterr().out
+        assert "the breakeven is one gap away" in out
+        assert "VETO" in out.upper() or "FAIL" in out.upper()
+
+    def test_the_dry_run_keeps_the_committee_out_of_the_judged_journal(self, llm_bench):
+        """A dry run is a rehearsal — decide() gets no journal to write to."""
+        committee = FakeCommittee(pick=lambda c: c[0])
+        before = len(llm_bench.journal.entries())
+        llm_bench(committee, argv=["--dry-run"])
+        assert committee.calls[0]["journal"] is None
+        assert len(llm_bench.journal.entries()) == before
