@@ -13,6 +13,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import time
 
+import pytest
+
 from llm.client import LLMResponse
 from committee import analysts
 from committee.analysts import (
@@ -207,6 +209,53 @@ def test_aggregate_mean_of_two_active_views():
 
 def test_aggregate_empty_list_returns_none():
     assert aggregate([]) is None
+
+
+# ---- aggregate with calibration weights (calibration.py plugs in here) ----
+
+def test_aggregate_with_weights_none_is_byte_identical_to_unweighted():
+    views = [
+        AnalystView("vol_analyst", 0.8, False, "", "", "m", "h1"),
+        AnalystView("bear_adversary", 0.2, False, "", "", "m", "h2"),
+    ]
+    assert aggregate(views, weights=None) == aggregate(views)
+
+
+def test_aggregate_with_weights_computes_weighted_mean():
+    views = [
+        AnalystView("vol_analyst", 0.8, False, "", "", "m", "h1"),
+        AnalystView("bear_adversary", 0.2, False, "", "", "m", "h2"),
+    ]
+    # vol_analyst weighted 3x as heavily as bear_adversary.
+    weighted = aggregate(views, weights={"vol_analyst": 3.0, "bear_adversary": 1.0})
+    assert weighted == pytest.approx((0.8 * 3.0 + 0.2 * 1.0) / 4.0)
+
+
+def test_aggregate_with_weights_still_excludes_abstainers_from_numerator_and_denominator():
+    views = [
+        AnalystView("vol_analyst", 0.8, False, "", "", "m", "h1"),
+        AnalystView("bear_adversary", 0.0, True, "timeout", "", "m", "h2"),
+    ]
+    # Even a huge weight on the abstaining role must not pull the result.
+    weighted = aggregate(views, weights={"vol_analyst": 1.0, "bear_adversary": 99.0})
+    assert weighted == 0.8
+
+
+def test_aggregate_with_weights_all_abstain_returns_none():
+    views = [
+        AnalystView("vol_analyst", 0.0, True, "timeout", "", "m", "h1"),
+    ]
+    assert aggregate(views, weights={"vol_analyst": 5.0}) is None
+
+
+def test_aggregate_with_weights_unlisted_role_defaults_to_weight_one():
+    views = [
+        AnalystView("vol_analyst", 0.8, False, "", "", "m", "h1"),
+        AnalystView("bear_adversary", 0.4, False, "", "", "m", "h2"),
+    ]
+    # bear_adversary not present in the weights dict -> defaults to 1.0.
+    weighted = aggregate(views, weights={"vol_analyst": 1.0})
+    assert weighted == pytest.approx((0.8 * 1.0 + 0.4 * 1.0) / 2.0)
 
 
 # ---- the IV sign convention is stated in every analyst prompt ----

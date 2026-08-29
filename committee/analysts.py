@@ -231,18 +231,32 @@ def run_analysts(snapshot: str, client=None, analysts=ANALYSTS) -> list[AnalystV
     return views
 
 
-def aggregate(views: list[AnalystView]) -> float | None:
-    """Weighted mean probability, excluding abstaining analysts from BOTH the
+def aggregate(views: list[AnalystView],
+               weights: dict[str, float] | None = None) -> float | None:
+    """Mean probability, excluding abstaining analysts from BOTH the
     numerator and the denominator.
 
-    Currently equal-weighted (weight=1 per active analyst); per-analyst
-    calibration weights land in the later `calibration.py` module and would
-    plug in here without changing this contract. If every analyst abstained,
-    returns None — the caller must abstain too. A genuine 0.5 is a view; an
-    abstention is not, so it must never silently pull the mean toward 0.5 by
-    being included as a phantom neutral vote.
+    `weights` is `calibration.analyst_weights()`'s return shape: role ->
+    voting weight. `None` (the default) means equal-weighted — every active
+    analyst counts for 1 — and behaviour is byte-identical to before this
+    parameter existed; this is a regression contract, not just a default.
+    A role missing from `weights` (e.g. a new analyst with no calibration
+    history yet) also defaults to weight 1.0, same as "unproven" in
+    `calibration.analyst_weights`.
+
+    If every analyst abstained, returns None — the caller must abstain too.
+    A genuine 0.5 is a view; an abstention is not, so it must never silently
+    pull the mean toward 0.5 by being included as a phantom neutral vote —
+    true with or without weights, since abstainers are filtered before any
+    weight is looked up.
     """
     active = [v for v in views if not v.abstained]
     if not active:
         return None
-    return sum(v.probability for v in active) / len(active)
+    if weights is None:
+        return sum(v.probability for v in active) / len(active)
+    weighted_sum = sum(v.probability * weights.get(v.role, 1.0) for v in active)
+    weight_total = sum(weights.get(v.role, 1.0) for v in active)
+    if weight_total == 0:
+        return None
+    return weighted_sum / weight_total
