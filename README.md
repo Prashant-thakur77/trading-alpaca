@@ -38,22 +38,27 @@ flowchart TD
     G --> I[RiskGuard<br/>ALLOW / DENY / DOWNSIZE]
     H --> I
     I --> J[executor<br/>atomic multi-leg order<br/>via the Alpaca CLI]
+    I --> P[pre-mortem<br/>failure modes compiled into<br/>deterministic exit triggers]
+    P --> J[executor<br/>atomic multi-leg order<br/>via the Alpaca CLI]
+    J --> M[exit monitor<br/>50% of credit / max loss / DTE&nbsp;3<br/>+ the pre-mortem's triggers]
     J --> K[(hash-chained journal<br/>every prompt, verdict, fill)]
-    K -.-> L["Brier calibration<br/>(PLANNED — not built)"]
+    M --> K
+    K --> L[Brier calibration<br/>close entries resolve predictions]
     L -.weights.-> D
     L -.weights.-> E
 
     style B fill:#e8f5e9
     style I fill:#ffebee
     style K fill:#e3f2fd
-    style L fill:#f5f5f5,stroke-dasharray: 5 5,color:#777
+    style L fill:#e8f5e9
 ```
 
 Green is deterministic. **Red is the gate nothing reaches the broker without.**
-Blue is the audit trail. **The dashed grey node is planned and not yet built** —
-the calibration loop that would make "grades itself" literal by demoting an
-analyst whose predictions score badly. Everything drawn with a solid border
-exists and runs today.
+Blue is the audit trail. The loop closes: the exit monitor journals a `close`
+entry carrying the realized P&L and the cycle's `snapshot_hash`, calibration
+joins that outcome back to the analyst predictions that produced it, and the
+resulting weights are recomputed and applied on the next cycle. Everything
+drawn exists and runs today.
 
 ---
 
@@ -91,6 +96,14 @@ exists and runs today.
 - **Defined risk is unrepresentable otherwise.** Only bull put spreads, bear
   call spreads, iron condors and long straddles can be constructed. There is no
   function that yields a naked short option.
+- **The desk manages the book before it adds to it.** Every cycle evaluates
+  the exits on what is already open first, so a protective exit is never
+  skipped because the cycle later abstains. Three exits apply to every
+  position whatever any model said — 50% of the credit received, max loss,
+  and a forced close at 3 DTE so a short ITM leg is never assigned into stock
+  at expiry — on top of whatever the pre-mortem compiled. Unwinding submits
+  one new inverted multi-leg order, because `close_position` closes a single
+  leg at a time and would leave a naked short between calls (verified live).
 - **Fail-closed by construction.** A missing intent, missing portfolio state,
   unreadable config, or *any* internal exception in the guard returns DENY.
   This is verified by mutation testing, not by assertion.
@@ -111,30 +124,41 @@ exists and runs today.
   with its prompt, raw response and parse result. One artifact serves as cost
   saver, audit record and deterministic replay corpus — a replayed cycle costs
   $0.00 and reproduces the decision verbatim.
-- **The desk grades itself: a Brier calibration loop, built and tested, but
-  honestly dormant.** `calibration.py` scores each analyst's `analyst_view`
-  predictions against their eventual outcome (correlated by the cycle's
-  `snapshot_hash`) with the standard Brier score, and turns that into a
-  voting weight — unproven analysts (< 10 resolved predictions) stay at 1.0,
-  a better-calibrated analyst outweighs a confidently-wrong one, and a
-  demoted analyst floors at 0.2 rather than being silenced, so it always has
-  a path back. `committee/analysts.py`'s `aggregate()` already accepts these
-  weights (`weights=None` stays byte-identical to equal-weighting — a
-  regression test enforces it). `make calibration` prints the live report.
-  **What is not yet true:** nothing in this codebase journals a closing
-  trade entry with realized P&L yet (exit monitoring is a later phase), so
-  `make calibration` against the real journal today correctly reports zero
-  resolved predictions and every weight at 1.0 — the report says this
-  outright rather than printing zeros that could pass for a score. The
-  weights are also not yet plugged into `decide()`'s live aggregation call.
-  31 tests (`tests/test_calibration.py`, `tests/test_calibration_report.py`)
-  cover the arithmetic, the correlation, the floor, and the honesty of the
-  report's language.
-
-**Planned, not yet built** — listed so this section is not read as shipped:
-
-- *Pre-mortem:* compiling "what would have to be true for this to lose" into
-  deterministic exit triggers.
+- **The desk grades itself, and the loop is closed.** `exit_monitor.py`
+  journals a `close` entry carrying `realized_pnl` and the originating
+  `snapshot_hash`; `calibration.py` joins that outcome back to the
+  `analyst_view` predictions of the cycle that produced it and scores each
+  analyst with the standard Brier score; `committee/decide.py` recomputes the
+  resulting voting weights from the journal on every cycle and records them
+  in that cycle's `trader_choice` entry, so a judge can see which weights
+  applied to which decision. Unproven analysts (< 10 resolved predictions)
+  stay at exactly 1.0, a better-calibrated analyst outweighs a
+  confidently-wrong one, and a demoted analyst floors at 0.2 rather than
+  being silenced, so it always has a path back.
+  **What that means today:** the paper account has few closed trades, so most
+  weights are still 1.0 and live behaviour is unchanged — a regression test
+  pins that the aggregate with all-1.0 weights is identical to the
+  unweighted mean. `make calibration` says so outright rather than printing
+  zeros that could pass for a score. What has changed is that the report is
+  no longer structurally incapable of ever moving: an end-to-end test
+  (`tests/test_exit_to_calibration.py`) drives ten real committee cycles
+  through a real close and takes the report from "0 resolved / weight 1.00"
+  to "10 resolved / brier 0.302 / weight 0.90".
+- **A pre-mortem that becomes an enforced rule, not a paragraph.** Before an
+  order is sent, `committee/premortem.py` asks the model what would have to
+  be true for this trade to lose money — and then compiles the answer into
+  machine-checkable `ExitTrigger`s the exit monitor evaluates every cycle.
+  The model fills in values for a fixed set of four kinds and can no more
+  invent a trigger kind than the trader can invent a strike: an unrecognised
+  kind, a non-numeric threshold, or a value that is nonsense for the
+  structure (an `underlying_beyond` on the winning side of spot, an
+  `iv_spike` below current realized vol that would fire on entry) is
+  discarded with a logged reason. The 3-DTE assignment-avoidance exit is
+  always present whatever the model says, and an LLM failure falls back to
+  the deterministic exits with `pre-mortem unavailable` recorded in every
+  rationale. On a live SPY bear call spread it returned five valid triggers,
+  every one correctly on the upside: the short strike, the breakeven, the
+  max-loss level, an IV level at 1.9x realized, and a 7-DTE gamma exit.
 
 ### Presentation
 

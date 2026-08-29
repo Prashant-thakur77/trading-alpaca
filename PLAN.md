@@ -61,13 +61,20 @@ no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
       (build on ai_backends.py / agent_signals.py dual-model machinery)
 - [ ] veto: two different model families must agree on direction, else ABSTAIN;
       rule-based fallback on API failure
-- [ ] executor.py → atomic multi-leg order via MCP; monitor exits: profit target
-      50% of credit, max-loss, DTE ≤ 3, deadline flatten
+- [x] executor.py → atomic multi-leg order via the Alpaca CLI; monitor exits:
+      profit target 50% of credit, max-loss, DTE ≤ 3 (exit_monitor.py, wired
+      into run_session; unwinds with a new inverted mleg order because there
+      is no atomic multi-leg close)
+- [x] committee/premortem.py: LLM failure modes compiled into deterministic,
+      validated ExitTriggers; forced 3-DTE exit; deterministic fallback
+- [x] journal a `close` entry with realized_pnl + snapshot_hash — closes the
+      calibration loop and makes consecutive_losses live
 - [ ] scheduler script using Alpaca CLI, one cycle / 30 min in market hours
 - [ ] LIVE SESSION 7:00 PM–1:30 AM IST — real fills, screen-record everything
 
 ## Phase 4 — Tue Sep 1: self-grading + dashboard core
-- [ ] Per-analyst Brier calibration over walk-forward windows; demotion weights
+- [x] Per-analyst Brier calibration; demotion weights recomputed from the
+      journal every cycle and passed into committee/decide.py's aggregate()
 - [ ] Deterministic replay mode for any past day (offline)
 - [ ] dashboard: Live Desk (positions, Greeks, P&L, decision feed) + Counters
       (seen / guard-denied / vetoed / abstained / executed)

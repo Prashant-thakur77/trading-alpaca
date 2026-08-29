@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 # scripts/run_session.py
 """
-Run one trading session cycle: preflight, build candidates, guard, execute.
+Run one trading session cycle: preflight, manage the open book, build
+candidates, decide, guard, pre-mortem, execute.
 
-This is the deterministic spine. The LLM committee (next plan) slots in at the
-selection step; until then the session picks the highest-credit candidate,
-which makes the execution path independently demoable.
+This is the deterministic spine the LLM committee plugs into at the selection
+step. `--no-llm` swaps the committee for a deterministic selector and the
+pre-mortem for its deterministic exits, so the desk still trades inside the
+same RiskGuard when Claude is unavailable.
 
 It is also the ONLY production caller of OptionsExecutor.submit(), which makes
-three things its responsibility and nobody else's:
+four things its responsibility and nobody else's:
+
+  0. **Managing what is already open, before opening anything.** Exits are
+     evaluated first: an exit must not be skipped because this cycle later
+     abstains on a working order or an empty candidate list. Each run is a
+     fresh process, so the positions it opened are remembered in
+     `logs/open_trades.json` — the broker's rows carry the symbols but not
+     the structure, the entry credit, the pre-mortem's triggers or the
+     snapshot_hash that attributes the outcome back to the analysts.
 
   1. **Not sending the same order twice.** An unfilled `day` order stays live
      all session and is invisible to `position list`. So the session reads
@@ -139,13 +149,14 @@ def consecutive_losses(entries: list[dict]) -> int:
 
     Zero when nothing has closed yet — an honest zero, not an assumption.
 
-    INERT IN PRODUCTION as of Plan 1: this derivation is correct and
-    covered by tests, but no writer in this codebase yet journals a "close"
-    (or "exit") entry carrying realized_pnl — exit monitoring lands in
-    Plan 2. Until then this always reads 0 in a live session, so risk.yaml's
-    "3 consecutive losers halves size" limit never fires. The 2% daily-loss
-    halt is the live backstop in the meantime: it is derived from
-    equity - last_equity (see daily_pnl()), so it captures open P&L too and
+    This read 0 forever until exit monitoring existed, because no writer
+    journalled a "close" entry carrying realized_pnl, so risk.yaml's "3
+    consecutive losers halves size" limit could never fire. `exit_monitor`
+    is that writer: every position it closes appends a `close` entry with
+    the realized P&L, and this streak is derived from those.
+
+    The 2% daily-loss halt remains the independent backstop: it comes from
+    equity - last_equity (see daily_pnl()), so it captures OPEN P&L too and
     does not depend on any close entry existing.
     """
     run = 0
@@ -871,12 +882,12 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
         net_delta=net_delta,
         net_vega=net_vega,
         daily_realized_pnl=day_pnl,
-        # INERT until Plan 2: no writer yet journals a "close"/"exit" entry
-        # carrying realized_pnl, so this reads 0 every cycle and the 3-loser
-        # halving never fires in production. See consecutive_losses()
-        # docstring. The 2% daily-loss halt above (day_pnl) is the live
-        # backstop — it uses equity - last_equity, so it catches open P&L
-        # too and does not depend on any close entry existing.
+        # Live: exit_monitor journals a `close` entry with realized_pnl for
+        # every position it closes, so this counts a real losing streak and
+        # the 3-loser halving can actually fire. The 2% daily-loss halt
+        # above (day_pnl) remains the independent backstop — it uses
+        # equity - last_equity, so it catches open P&L too and does not
+        # depend on any close entry existing.
         consecutive_losses=consecutive_losses(entries),
         new_today_by_underlying=opened_today_by_underlying(
             entries, working, datetime.now(timezone.utc).date()),
