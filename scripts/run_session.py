@@ -257,23 +257,65 @@ def _mark_price(row: dict) -> float | None:
     return current if current and current > 0 else None
 
 
+def _equity_delta(row: dict, qty: float | None, spot_for) -> float | None:
+    """Position delta of a share row: +1 per share long, -1 per share short.
+
+    A share's delta is 1 by definition — it IS the underlying — so this needs
+    no implied vol, no expiry and no pricing model, and it is signed by the
+    broker's own signed quantity. A spot lookup is still required: a symbol
+    this desk cannot even price is one it does not understand, and an
+    unrecognised instrument must not be silently scored as flat.
+
+    Returns None when the row has no usable quantity or no spot, which the
+    caller turns into an abstention.
+    """
+    symbol = str(row.get("symbol", "")).strip().upper()
+    if not qty:
+        logger.warning("Equity position %r has no usable qty — book is "
+                       "unmeasurable", symbol)
+        return None
+    spot = spot_for(symbol)
+    if not spot or spot <= 0:
+        logger.warning("No spot for equity position %r — book is unmeasurable",
+                       symbol)
+        return None
+    logger.info("Equity position %s: %+.0f shares = %+.1f delta (assigned "
+                "stock is valued, not treated as unmeasurable)", symbol, qty, qty)
+    return qty
+
+
 def book_greeks(positions: list[dict], spot_for) -> tuple[float, float] | None:
     """Net (delta, vega) of the EXISTING book, in position terms.
 
-    Returns None if any row cannot be valued — an unparseable symbol, a
-    missing spot or a mark that no IV solves. None means "unmeasurable", and
-    the caller must abstain: reporting an unknown book as flat Greeks is what
+    Returns None if any row cannot be valued — a missing spot, a missing
+    quantity or a mark that no IV solves. None means "unmeasurable", and the
+    caller must abstain: reporting an unknown book as flat Greeks is what
     makes the |net delta| and |net vega| limits decorative.
+
+    **A share position is not unmeasurable.** An OCC symbol that will not
+    parse is an EQUITY row — overwhelmingly, this desk's own short leg
+    assigned into stock at expiry (design spec A.5). Its Greeks are the most
+    certain in the whole book: 100 shares are exactly 100 delta and zero
+    vega, no model and no implied vol required. Returning None for it froze
+    the desk permanently — every later cycle printed "the existing book
+    cannot be valued" and abstained, with no way left to manage or exit the
+    assigned position (parked ruling, Plan 1 final review). It failed closed,
+    so no money was at risk, but a desk that can never trade again is worse
+    than one that values a share position correctly.
+
+    Everything that genuinely cannot be valued still returns None.
     """
     net_delta = net_vega = 0.0
     today = date.today()
     for row in positions:
         occ = parse_occ(str(row.get("symbol", "")))
-        if occ is None:
-            logger.warning("Cannot parse position symbol %r — book is unmeasurable",
-                           row.get("symbol"))
-            return None
         qty = _float(row.get("qty"))
+        if occ is None:
+            equity_delta = _equity_delta(row, qty, spot_for)
+            if equity_delta is None:
+                return None
+            net_delta += equity_delta     # shares carry no vega at all
+            continue
         if not qty:
             logger.warning("Position %s has no usable qty", occ.root)
             return None

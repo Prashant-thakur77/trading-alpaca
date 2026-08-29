@@ -355,13 +355,29 @@ class TestPortfolioStateIsDerived:
         assert "delta +0.0" not in book_line
 
     def test_an_unpriceable_book_abstains_rather_than_assuming_zero(self, bench, capsys):
-        """A position we cannot value must never be scored as flat Greeks."""
+        """A position we cannot value must never be scored as flat Greeks.
+
+        The row is a non-OCC symbol whose SPOT will not resolve. A non-OCC
+        symbol alone is no longer unmeasurable — that is an assigned equity
+        position, and it is now valued at 1 delta per share rather than
+        freezing the desk (see TestAssignedEquityDoesNotFreezeTheDesk). What
+        remains unmeasurable, and must still abstain, is an instrument this
+        desk cannot even price.
+        """
+        class NoSpotForStrangers(FakeData):
+            def get_stock_bars(self, symbol, days=30):
+                if symbol != "SPY":
+                    return pd.DataFrame()
+                return super().get_stock_bars(symbol, days)
+
         cli = FakeCLI(positions=[{"symbol": "NOT-AN-OCC-SYMBOL", "qty": "1",
                                   "market_value": "100", "current_price": "1.00"}])
         bench.journal.append("fill", {"underlying": "QQQ", "structure": "iron_condor"})
-        assert bench(cli=cli) == 0
+        assert bench(cli=cli, data=NoSpotForStrangers()) == 0
         assert cli.posted == []
-        assert "abstain" in capsys.readouterr().out.lower()
+        out = capsys.readouterr().out.lower()
+        assert "abstain" in out
+        assert "cannot be valued" in out
 
 
 # ── guard refusal must short-circuit, not fall through ───────
@@ -502,6 +518,82 @@ class TestHelpers:
     def test_book_greeks_returns_none_without_a_spot(self):
         rows = [{"symbol": _occ(445, "p"), "qty": "1", "market_value": "500"}]
         assert run_session.book_greeks(rows, lambda root: None) is None
+
+
+# ── an assigned equity position must not freeze the desk ─────
+#
+# Parked ruling from the Plan 1 final review: book_greeks returned None for
+# any row whose symbol is not an OCC option symbol, so once a short put was
+# assigned and the account held 100 shares of SPY, EVERY later cycle printed
+# "the existing book cannot be valued" and exited 0 — with no way left to
+# manage or exit the position. It failed closed, so no money was at risk, but
+# a desk that can never trade again is a demo-killer.
+#
+# An equity row is not unpriceable at all: 100 shares are exactly 100 delta
+# and zero vega, which is the most certain Greek in the whole book.
+
+class TestAssignedEquityDoesNotFreezeTheDesk:
+    def test_a_long_share_position_is_plus_one_delta_per_share(self):
+        rows = [{"symbol": "SPY", "qty": "100", "market_value": "45000",
+                 "current_price": "450"}]
+        delta, vega = run_session.book_greeks(rows, lambda root: 450.0)
+        assert delta == pytest.approx(100.0)
+        assert vega == pytest.approx(0.0)
+
+    def test_a_short_share_position_is_minus_one_delta_per_share(self):
+        rows = [{"symbol": "SPY", "qty": "-100", "market_value": "-45000",
+                 "current_price": "450"}]
+        delta, vega = run_session.book_greeks(rows, lambda root: 450.0)
+        assert delta == pytest.approx(-100.0)
+        assert vega == pytest.approx(0.0)
+
+    def test_a_mixed_book_of_an_option_and_assigned_shares_is_valued(self):
+        """The exact shape a partially assigned short put spread leaves
+        behind: one surviving long put plus 100 shares."""
+        rows = [
+            {"symbol": _occ(445, "p"), "qty": "1", "market_value": "500",
+             "current_price": "5.00"},
+            {"symbol": "SPY", "qty": "100", "market_value": "45000",
+             "current_price": "450"},
+        ]
+        book = run_session.book_greeks(rows, lambda root: 450.0)
+        assert book is not None, "an assigned equity row must not blind the book"
+        delta, vega = book
+        option_delta, option_vega = run_session.book_greeks(
+            rows[:1], lambda root: 450.0)
+        assert delta == pytest.approx(option_delta + 100.0)
+        assert vega == pytest.approx(option_vega)
+
+    def test_a_genuinely_unvaluable_row_still_fails_closed(self):
+        """Only an equity row gains a valuation. A row with no usable
+        quantity is still unmeasurable, and unmeasurable still means abstain."""
+        rows = [{"symbol": "SPY", "qty": "0", "market_value": "0"}]
+        assert run_session.book_greeks(rows, lambda root: 450.0) is None
+
+    def test_an_equity_row_without_a_spot_still_fails_closed(self):
+        rows = [{"symbol": "SPY", "qty": "100", "market_value": "45000"}]
+        assert run_session.book_greeks(rows, lambda root: None) is None
+
+    def test_a_session_with_a_mixed_book_reaches_the_guard(self, bench, capsys):
+        """End to end: the desk must keep running with shares in the account,
+        not print "cannot be valued" and abstain forever."""
+        bench.journal.append("fill", {"underlying": "SPY",
+                                      "structure": "bull_put_spread",
+                                      "contracts": 1})
+        cli = FakeCLI(
+            account={"options_trading_level": 3, "equity": "99000",
+                     "last_equity": "100000"},
+            positions=[
+                {"symbol": _occ(440, "p"), "qty": "1", "market_value": "200",
+                 "current_price": "2.00"},
+                {"symbol": "SPY", "qty": "100", "market_value": "45000",
+                 "current_price": "450"},
+            ])
+        assert bench(cli=cli, argv=["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "cannot be valued" not in out
+        assert "guard:" in out, "the cycle must reach the guard, not freeze"
+        assert "book:" in out
 
 
 # ── the LLM committee is actually in the loop ────────────────
