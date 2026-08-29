@@ -4,6 +4,7 @@ Hard rule 5: every decision appends one JSONL entry with
 prev_hash = SHA-256 of the previous entry. Past entries are never edited.
 """
 import json
+import multiprocessing
 import os
 import sys
 
@@ -17,6 +18,14 @@ from journal import Journal, GENESIS_HASH, verify_chain
 @pytest.fixture
 def journal(tmp_path):
     return Journal(tmp_path / "journal.jsonl")
+
+
+def _hammer(path: str, count: int, label: int) -> None:
+    """Append `count` entries from a separate process (module-level so it pickles)."""
+    from journal import Journal as J
+    j = J(path)
+    for i in range(count):
+        j.append("proposal", {"who": label, "i": i})
 
 
 class TestAppend:
@@ -105,3 +114,33 @@ class TestVerifyChain:
         ok, err = verify_chain(tmp_path / "nope.jsonl")
         assert ok is False
         assert "not found" in err.lower()
+
+
+class TestConcurrentAppends:
+    """The scan process and the exit-monitor process journal at the same time.
+
+    If the tail is read before the exclusive lock is taken, two writers see the
+    same predecessor and emit two entries with the same seq and prev_hash —
+    the chain forks and `make verify-journal`, a judged artifact, then fails
+    permanently. Nothing can repair it, because entries are never rewritten.
+    """
+
+    def test_concurrent_writers_do_not_fork_the_chain(self, tmp_path):
+        path = str(tmp_path / "j.jsonl")
+        Journal(path)   # create up front so every child continues one chain
+
+        writers, per_writer = 4, 25
+        procs = [multiprocessing.Process(target=_hammer, args=(path, per_writer, k))
+                 for k in range(writers)]
+        for p in procs:
+            p.start()
+        for p in procs:
+            p.join(60)
+        assert all(p.exitcode == 0 for p in procs), [p.exitcode for p in procs]
+
+        entries = Journal(path).entries()
+        assert len(entries) == writers * per_writer
+        # Every entry must occupy a distinct, gapless position in the chain.
+        assert [e["seq"] for e in entries] == list(range(writers * per_writer))
+        ok, err = verify_chain(path)
+        assert ok, err

@@ -75,10 +75,26 @@ class RiskConfig:
     allowed_structures: tuple[str, ...]
     kill_switch_file: str
     kill_switch_env: str
+    # Directory of the risk.yaml this config came from. Relative paths inside
+    # the file resolve against it, never against the current directory.
+    config_dir: Path = DEFAULT_CONFIG_PATH.parent
 
     @property
     def max_daily_loss_dollars(self) -> float:
         return self.initial_capital * self.max_daily_loss_pct / 100.0
+
+    @property
+    def kill_switch_path(self) -> Path:
+        """Absolute path of the kill-switch file.
+
+        risk.yaml names it relatively ("KILL_SWITCH"). Resolved against the
+        process's working directory it would be inert under cron, systemd, or
+        any invocation from outside the repo root — i.e. hard rule 6 would be
+        unreachable exactly where an operator most needs it. It is therefore
+        anchored to the directory the config was loaded from.
+        """
+        configured = Path(self.kill_switch_file)
+        return configured if configured.is_absolute() else self.config_dir / configured
 
 
 def load_risk_config(path: str | Path = DEFAULT_CONFIG_PATH) -> RiskConfig:
@@ -115,6 +131,7 @@ def load_risk_config(path: str | Path = DEFAULT_CONFIG_PATH) -> RiskConfig:
             allowed_structures=tuple(data["structures"]["allowed"]),
             kill_switch_file=str(data["kill_switch"]["file"]),
             kill_switch_env=str(data["kill_switch"]["env"]),
+            config_dir=path.resolve().parent,
         )
     except (KeyError, TypeError, ValueError) as e:
         raise ValueError(f"risk.yaml at {path} is malformed: {e}") from e
@@ -129,8 +146,9 @@ class RiskGuard:
     # ── kill switch ──────────────────────────────────────────
     def kill_switch_active(self) -> tuple[bool, str]:
         """Hard rule 6: file present or env var set to 1 halts all trading."""
-        if Path(self.config.kill_switch_file).exists():
-            return True, f"KILL SWITCH: {self.config.kill_switch_file} file present"
+        switch = self.config.kill_switch_path
+        if switch.exists():
+            return True, f"KILL SWITCH: {switch} file present"
         if os.environ.get(self.config.kill_switch_env, "0") == "1":
             return True, f"KILL SWITCH: {self.config.kill_switch_env}=1"
         return False, ""

@@ -41,9 +41,18 @@ def _flat() -> PortfolioState:
 
 @pytest.fixture
 def guard(tmp_path, monkeypatch):
+    """A guard whose risk.yaml lives in tmp_path.
+
+    The kill switch resolves relative to the config file, not the working
+    directory (hard rule 6 must survive cron), so a test that wants to trip it
+    drops KILL_SWITCH beside this copy of risk.yaml.
+    """
+    import shutil
     monkeypatch.delenv("KILL", raising=False)
     monkeypatch.chdir(tmp_path)
-    return RiskGuard(load_risk_config(os.path.join(os.path.dirname(__file__), "..", "risk.yaml")))
+    shutil.copy(os.path.join(os.path.dirname(__file__), "..", "risk.yaml"),
+                tmp_path / "risk.yaml")
+    return RiskGuard(load_risk_config(tmp_path / "risk.yaml"))
 
 
 class TestConfigLoading:
@@ -202,6 +211,47 @@ class TestKillSwitch:
     def test_kill_zero_does_not_halt(self, guard, monkeypatch):
         monkeypatch.setenv("KILL", "0")
         assert guard.evaluate(_intent(), _flat()).decision == Verdict.ALLOW
+
+    def test_kill_switch_file_fires_from_any_working_directory(self, tmp_path, monkeypatch):
+        """Hard rule 6 must hold under cron/systemd, which run from / or $HOME.
+
+        risk.yaml names the switch relatively ("KILL_SWITCH"). Resolved against
+        the current directory it is inert everywhere but the repo root, so the
+        operator's one manual halt would silently do nothing.
+        """
+        import shutil
+        monkeypatch.delenv("KILL", raising=False)
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        shutil.copy(os.path.join(os.path.dirname(__file__), "..", "risk.yaml"),
+                    repo / "risk.yaml")
+        (repo / "KILL_SWITCH").touch()
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        g = RiskGuard(load_risk_config(repo / "risk.yaml"))
+        killed, why = g.kill_switch_active()
+        assert killed is True, "kill switch did not fire from a different CWD"
+        assert "kill" in why.lower()
+        assert g.evaluate(_intent(), _flat()).decision == Verdict.DENY
+
+    def test_absent_kill_switch_does_not_halt_from_another_directory(self, tmp_path, monkeypatch):
+        """The mirror case: resolving the path must not invent a switch either."""
+        import shutil
+        monkeypatch.delenv("KILL", raising=False)
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        shutil.copy(os.path.join(os.path.dirname(__file__), "..", "risk.yaml"),
+                    repo / "risk.yaml")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "KILL_SWITCH").touch()   # a stray file in the CWD is not the switch
+        monkeypatch.chdir(elsewhere)
+
+        g = RiskGuard(load_risk_config(repo / "risk.yaml"))
+        assert g.kill_switch_active()[0] is False
 
 
 class TestFailClosed:

@@ -15,6 +15,7 @@ commits to the payload *and* to the chain position.
 import fcntl
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,38 +44,62 @@ class Journal:
         # from a missing one — verify_chain treats a missing file as tampering.
         self.path.touch(exist_ok=True)
 
-    def _last_entry(self) -> dict | None:
-        """Read the final entry, or None for an empty/absent journal."""
-        if not self.path.exists():
-            return None
+    @staticmethod
+    def _tail_of(text: str) -> dict | None:
+        """Parse the final non-blank line of a journal body, or None if empty."""
         last = None
-        for line in self.path.read_text().splitlines():
+        for line in text.splitlines():
             if line.strip():
                 last = line
         return json.loads(last) if last else None
 
+    def _last_entry(self) -> dict | None:
+        """Read the final entry, or None for an empty/absent journal.
+
+        Unlocked — for read-only callers. `append` must NOT use this: it reads
+        the tail *inside* the lock, see below.
+        """
+        if not self.path.exists():
+            return None
+        return self._tail_of(self.path.read_text())
+
     def append(self, entry_type: str, payload: dict) -> dict:
-        """Append one entry chained to the current tail. Returns the entry."""
-        previous = self._last_entry()
-        if previous is None:
-            seq, prev_hash = 0, GENESIS_HASH
-        else:
-            seq, prev_hash = previous["seq"] + 1, previous["entry_hash"]
+        """Append one entry chained to the current tail. Returns the entry.
 
-        entry = {
-            "seq": seq,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "type": entry_type,
-            "payload": payload,
-            "prev_hash": prev_hash,
-        }
-        entry["entry_hash"] = compute_entry_hash(entry)
+        Read-then-write is one critical section. The scan process and the exit
+        monitor journal concurrently; if the tail were read before the lock was
+        taken, both would chain to the same predecessor and emit two entries
+        with the same seq and prev_hash. That forks the chain, and because
+        entries are never rewritten (hard rule 5) `verify_chain` — a judged
+        artifact — would fail permanently. So: open, lock, THEN read.
 
-        # Exclusive lock: scan and monitor processes may journal concurrently.
-        with open(self.path, "a") as f:
+        Mode "a+" both creates the file if it is missing and forces every
+        write to the end, so a writer can never overwrite another's line.
+        """
+        with open(self.path, "a+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
-            f.write(json.dumps(entry, default=str) + "\n")
-            f.flush()
+            try:
+                f.seek(0)
+                previous = self._tail_of(f.read())
+                if previous is None:
+                    seq, prev_hash = 0, GENESIS_HASH
+                else:
+                    seq, prev_hash = previous["seq"] + 1, previous["entry_hash"]
+
+                entry = {
+                    "seq": seq,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "type": entry_type,
+                    "payload": payload,
+                    "prev_hash": prev_hash,
+                }
+                entry["entry_hash"] = compute_entry_hash(entry)
+
+                f.write(json.dumps(entry, default=str) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
         return entry
 
     def entries(self) -> list[dict]:

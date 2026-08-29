@@ -45,9 +45,16 @@ class FakeCLI:
 
 @pytest.fixture
 def executor(tmp_path, monkeypatch):
+    """Executor over a risk.yaml copied into tmp_path.
+
+    The kill switch resolves against the config file's directory (hard rule 6
+    must fire from any CWD), so KILL_SWITCH is dropped beside this copy.
+    """
+    import shutil
     monkeypatch.delenv("KILL", raising=False)
     monkeypatch.chdir(tmp_path)
-    guard = RiskGuard(load_risk_config(RISK_YAML))
+    shutil.copy(RISK_YAML, tmp_path / "risk.yaml")
+    guard = RiskGuard(load_risk_config(tmp_path / "risk.yaml"))
     return lambda cli: OptionsExecutor(cli, guard, Journal(tmp_path / "j.jsonl"))
 
 
