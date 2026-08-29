@@ -45,31 +45,44 @@ def fit_vol_regime(train_df) -> dict:
     return {"baseline_vol": realized_volatility(train_df, window=len(train_df))}
 
 
+# One trade per 21-bar cycle: 10 bars to measure entry vol, then hold to the end.
+CYCLE_BARS = 21
+ENTRY_BAR = 9                       # entry is taken on bar index 9 of the cycle
+HOLD_BARS = CYCLE_BARS - 1 - ENTRY_BAR   # bars actually at risk: 9 -> 20 = 11
+
+
 def test_premium_selling(test_df, params) -> list[Trade]:
     """Score phase: a defined-risk premium-selling proxy on unseen bars.
 
     Sells premium when realized vol sits below its in-sample baseline (calm),
     and stands aside otherwise. Wins are capped at the credit (+1R) and losses
     at the spread width (-2R), mirroring a real credit spread's payoff.
+
+    The breach threshold must be scaled to the bars actually held (HOLD_BARS),
+    not to the length of the cycle. An earlier version used sqrt(21) while
+    holding only 11 bars, comparing an 11-day realized move against a 21-day
+    sigma — a threshold ~1.38x too generous, which manufactured a ~97% win rate
+    by construction rather than by edge. Vol scales with the square root of
+    time, so the horizon in the threshold and the horizon actually at risk have
+    to be the same number.
     """
     baseline = params.get("baseline_vol", 0.0)
-    if baseline <= 0 or len(test_df) < 21:
+    if baseline <= 0 or len(test_df) < CYCLE_BARS:
         return []
 
     trades: list[Trade] = []
-    # Non-overlapping 21-bar holds ≈ one monthly cycle per trade.
-    for start in range(0, len(test_df) - 21, 21):
-        window = test_df.iloc[start:start + 21]
-        entry_vol = realized_volatility(window.iloc[:10], window=10)
+    for start in range(0, len(test_df) - CYCLE_BARS, CYCLE_BARS):
+        window = test_df.iloc[start:start + CYCLE_BARS]
+        entry_vol = realized_volatility(window.iloc[:ENTRY_BAR + 1], window=ENTRY_BAR + 1)
         if entry_vol <= 0 or entry_vol >= baseline:
             continue  # Not calm relative to what we learned in-sample.
 
-        entry = float(window["close"].iloc[9])
+        entry = float(window["close"].iloc[ENTRY_BAR])
         exit_price = float(window["close"].iloc[-1])
         move_pct = abs(exit_price - entry) / entry
 
-        # Short strike sits ~1 baseline monthly sigma away.
-        breach = baseline / (252 ** 0.5) * (21 ** 0.5)
+        # Short strike ~1 baseline sigma away over the bars actually held.
+        breach = baseline / (252 ** 0.5) * (HOLD_BARS ** 0.5)
         trades.append(Trade(
             symbol=str(test_df.get("symbol", ["?"]).iloc[0]) if "symbol" in test_df else "",
             r_multiple=-2.0 if move_pct > breach else 1.0,

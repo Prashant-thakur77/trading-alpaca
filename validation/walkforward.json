@@ -1,0 +1,591 @@
+{
+  "generated_at": "2026-08-29T12:13:32.089065+00:00",
+  "is_bars": 90,
+  "oos_bars": 30,
+  "symbols": {
+    "SPY": {
+      "symbol": "SPY",
+      "windows": 13,
+      "window_results": [
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "win_rate": 0.0,
+          "expectancy_r": -2.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 2.0,
+          "total_r": -2.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        }
+      ],
+      "oos": {
+        "trades": 8,
+        "wins": 7,
+        "losses": 1,
+        "win_rate": 87.5,
+        "expectancy_r": 0.625,
+        "profit_factor": 3.5,
+        "max_drawdown_r": 2.0,
+        "total_r": 5.0
+      }
+    },
+    "QQQ": {
+      "symbol": "QQQ",
+      "windows": 13,
+      "window_results": [
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "win_rate": 0.0,
+          "expectancy_r": -2.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 2.0,
+          "total_r": -2.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        }
+      ],
+      "oos": {
+        "trades": 7,
+        "wins": 6,
+        "losses": 1,
+        "win_rate": 85.71428571428571,
+        "expectancy_r": 0.5714285714285714,
+        "profit_factor": 3.0,
+        "max_drawdown_r": 2.0,
+        "total_r": 4.0
+      }
+    },
+    "AAPL": {
+      "symbol": "AAPL",
+      "windows": 13,
+      "window_results": [
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "win_rate": 0.0,
+          "expectancy_r": -2.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 2.0,
+          "total_r": -2.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "win_rate": 0.0,
+          "expectancy_r": -2.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 2.0,
+          "total_r": -2.0
+        },
+        {
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "win_rate": 0.0,
+          "expectancy_r": -2.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 2.0,
+          "total_r": -2.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        }
+      ],
+      "oos": {
+        "trades": 8,
+        "wins": 5,
+        "losses": 3,
+        "win_rate": 62.5,
+        "expectancy_r": -0.125,
+        "profit_factor": 0.8333333333333334,
+        "max_drawdown_r": 6.0,
+        "total_r": -1.0
+      }
+    },
+    "MSFT": {
+      "symbol": "MSFT",
+      "windows": 13,
+      "window_results": [
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 0,
+          "wins": 0,
+          "losses": 0,
+          "win_rate": 0.0,
+          "expectancy_r": 0.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 0.0,
+          "total_r": 0.0
+        },
+        {
+          "trades": 1,
+          "wins": 0,
+          "losses": 1,
+          "win_rate": 0.0,
+          "expectancy_r": -2.0,
+          "profit_factor": 0.0,
+          "max_drawdown_r": 2.0,
+          "total_r": -2.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        },
+        {
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "expectancy_r": 1.0,
+          "profit_factor": Infinity,
+          "max_drawdown_r": 0.0,
+          "total_r": 1.0
+        }
+      ],
+      "oos": {
+        "trades": 7,
+        "wins": 6,
+        "losses": 1,
+        "win_rate": 85.71428571428571,
+        "expectancy_r": 0.5714285714285714,
+        "profit_factor": 3.0,
+        "max_drawdown_r": 2.0,
+        "total_r": 4.0
+      }
+    }
+  }
+}
