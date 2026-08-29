@@ -1,4 +1,4 @@
-.PHONY: site help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration judge judge judge-page clean
+.PHONY: site help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration judge judge-page clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
