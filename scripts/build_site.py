@@ -351,6 +351,11 @@ def main() -> int:
     (SITE / "index.html").write_text(build_landing())
     (SITE / "judge" / "index.html").write_text(build_judge())
     shutil.copytree(SCEN := ROOT / "judge" / "scenarios", SITE / "scenarios")
+    # the smile page is generated from the live chain by its own script and is
+    # preserved across rebuilds if already present
+    smile = SITE / "smile" / "index.html"
+    if not smile.exists():
+        print("  note: site/smile/index.html absent — run scripts/build_smile_page.py")
     shutil.copy(ROOT / "judge" / "vercel.json", SITE / "vercel.json")
     for f in sorted(SITE.rglob("*")):
         if f.is_file():

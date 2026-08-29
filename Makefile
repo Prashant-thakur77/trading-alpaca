@@ -67,8 +67,11 @@ judge:
 judge-page:
 	python3 scripts/build_judge_page.py
 
+# build_site rebuilds site/ from scratch, so the live-data smile page is
+# regenerated after it rather than being wiped by it.
 site:
 	python3 scripts/build_site.py
+	python3 scripts/build_smile_page.py
 
 verify-journal:
 	python3 scripts/verify_journal.py

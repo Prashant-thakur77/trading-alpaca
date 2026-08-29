@@ -22,9 +22,8 @@ from fx import TOKENS, FX_CSS, FX_JS, INTRO_HTML
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "https://github.com/Prashant-thakur77/trading-alpaca"
 
-NAV = [("Pipeline", "#pipeline"), ("The desk", "#desk"),
-       ("Contamination", "#contamination"), ("Evidence", "#evidence"),
-       ("Limits", "#limits"), ("Replay", "/judge")]
+# The floating pill nav carries contextual text, not links; the two sub-pages
+# are surfaced in the pinned stack card, whose markup is inline below.
 
 # Four stages. Expandable, in the manner of a case-study card.
 PIPELINE = [
@@ -317,7 +316,6 @@ addEventListener('scroll',()=>{if(!ctx)return;
 
 
 def build() -> str:
-    nav = "".join(f'<a href="{h}">{t}</a>' for t, h in NAV)
     facts = "".join(f'<div><div class="n">{n}</div><div class="l">{l}</div></div>' for n, l in [
         ("3,686", "contracts read from the live chain"),
         ("632", "defined-risk structures built by code"),
@@ -368,6 +366,7 @@ def build() -> str:
 
 <div class="stack">
   <a href="/judge"><span>Judge desk</span><span class="v ok">( → )</span></a>
+  <a href="/smile"><span>Vol smile</span><span class="v ok">( → )</span></a>
   <div><span>Options level</span><span class="v ok">3</span></div>
   <div><span>Equity</span><span class="v">$100,000</span></div>
   <div><span>Open positions</span><span class="v ok">0</span></div>
@@ -455,6 +454,10 @@ def build() -> str:
     The repository this was converted from shipped a hardcoded “82.2% out-of-sample win
     rate” computed from nothing. That was deleted, not adapted.</div>
   <div class="checks rv">{checks}</div>
+  <p class="note rv" style="margin-top:30px;max-width:76ch">The fitted volatility
+  smile per expiry is rendered at <a href="/smile" style="border-bottom:1px solid var(--coral)">/smile</a>,
+  with every strike whose deviation sits inside its own bid-ask noise drawn grey and
+  scored zero. Across the live chain only about a fifth clear that bar.</p>
 </div></section>
 
 <section><div class="wrap">
