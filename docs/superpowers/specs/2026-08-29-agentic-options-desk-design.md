@@ -262,3 +262,68 @@ only outputs are a probability or an abstention.
 
 None blocking. Deferred: whether calibration weights should decay with age
 (revisit once there are ≥ 50 resolved predictions).
+
+---
+
+## Addendum A — deep Alpaca integration (verified live 2026-08-29)
+
+Every item below was checked against paper account `PA3JR0GVVEN0` with real
+credentials, not inferred from documentation.
+
+### A.1 Corrections to earlier assumptions
+
+| Assumption | Reality | Consequence |
+|---|---|---|
+| `opra` options feed available | **Not signed** on this account; explicit `feed="opra"` 403s | Leave `feed` unset so the server resolves the `indicative` entitlement. Never hardcode opra. |
+| `do_not_exercise_options_position` exists | **Does not exist** in alpaca-py; DNE requires an Alpaca support ticket | Do not design any exit path around it. |
+| `close_position` can close a spread | Closes **one leg at a time**; there is no atomic multi-leg close | Unwinding a spread submits a *new* mleg order with inverted sides — `options_orders.closing_payload`. |
+| `TradingClient.get_account_activities` exists | Only on `BrokerClient` | Use the raw `trading_client.get("/account/activities", ...)` endpoint for the fills audit trail. |
+
+### A.2 Greeks: two independent sources, reconciled
+
+Alpaca returns `greeks` (delta, gamma, rho, theta, vega) and
+`implied_volatility` on option snapshots, free on the indicative feed, for
+~61% of contracts. They are `None` exactly where the quote is unpriceable —
+zero bid, or deep ITM with an enormous spread — which is precisely where a
+computed Greek would be least trustworthy anyway.
+
+Policy: **prefer Alpaca's Greeks when present; fall back to `analytics.greeks`
+(vollib) when absent; log both when both exist and flag divergence beyond a
+threshold.** Two independent sources that must agree is a risk control, not
+just a saving — and a disagreement is a signal that the quote is bad.
+
+### A.3 Fills by stream, not by polling
+
+`TradingStream.subscribe_trade_updates` delivers a `TradeUpdate`
+(`event`, `order`, `qty`, `price`, `position_qty`) per leg fill plus the parent
+order. This replaces `OptionsExecutor._poll` entirely for the live path.
+Polling remains the fallback when the stream is unavailable, because an agent
+that cannot confirm a fill must fail closed rather than assume.
+
+### A.4 News as a reasoning input
+
+`NewsClient.get_news` (verified: real Benzinga headlines, history to 2016,
+full article bodies via `include_content=True`) and `NewsDataStream` for push.
+This feeds the news analyst in §4.1 with evidence rather than another number —
+the committee's only non-price input.
+
+### A.5 Session guards
+
+- `get_calendar` identifies early closes (verified: 2026-11-27 closes 13:00).
+  Block new entries within N minutes of `get_clock().next_close`, which already
+  reflects a half day.
+- Open interest is available **only** from `get_option_contract`/
+  `get_option_contracts`, never from the chain snapshot — already handled by
+  the merge in `alpaca_data.get_option_chain`.
+- At expiry on paper, ITM contracts auto-exercise and short ITM legs are
+  assigned into stock, which can exceed options buying power. The DTE ≤ 3
+  forced exit exists to avoid this and is not optional.
+
+### A.6 Measured liquidity reality (SPY, 2026-08-29)
+
+3,686 contracts fetched; **1,078 pass the risk.yaml liquidity gate**
+(rejections: 1,595 open interest, 612 both, 401 spread). Strikes are 1 point
+apart near the money; available DTEs 10–41 sit inside the 7–45 window. A
+5-wide vertical risks ≤ $500/contract against the $1,000 cap. Candidate
+generation therefore has real choice, and the gate is doing visible work
+rather than passing everything.
