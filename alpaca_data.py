@@ -1,0 +1,211 @@
+"""
+Alpaca market data adapter — stock bars and option chains, 15-minute cached.
+
+Replaces kraken_data.py. Clients are injected so the whole adapter is testable
+with no credentials and markets closed.
+
+One non-obvious thing this module exists to handle: Alpaca's option-chain
+snapshots carry quotes, IV and Greeks but **no open interest**, while open
+interest lives on the contract records from the trading API. risk.yaml gates on
+OI >= 100, so `get_option_chain` merges the two sources and drops any contract
+whose OI cannot be established. Unknown OI becomes 0, which fails the liquidity
+gate — fail closed rather than trade blind (hard rule 2).
+
+Every fetch failure returns empty (no bars / no quotes), never partial or stale
+data, and failures are not cached.
+"""
+import logging
+import os
+import time
+from datetime import datetime, timedelta, timezone
+
+import pandas as pd
+
+from candidate_builder import MAX_DTE, MIN_DTE, OptionQuote
+
+logger = logging.getLogger(__name__)
+
+CACHE_TTL_SECONDS = 15 * 60  # 15 minutes
+
+
+class AlpacaData:
+    """Bars + option chains with a TTL cache.
+
+    Clients are injected for testability; `from_env` builds the real ones.
+    """
+
+    def __init__(self, stock_client, option_client, trading_client, clock=time.monotonic):
+        self.stock_client = stock_client
+        self.option_client = option_client
+        self.trading_client = trading_client
+        self._clock = clock
+        self._cache: dict[tuple, tuple[float, object]] = {}
+
+    @classmethod
+    def from_env(cls) -> "AlpacaData":
+        """Build from ALPACA_API_KEY / ALPACA_SECRET_KEY. Paper endpoints only."""
+        from alpaca.data.historical.option import OptionHistoricalDataClient
+        from alpaca.data.historical.stock import StockHistoricalDataClient
+        from alpaca.trading.client import TradingClient
+
+        key = os.environ.get("ALPACA_API_KEY")
+        secret = os.environ.get("ALPACA_SECRET_KEY")
+        if not key or not secret:
+            raise RuntimeError(
+                "ALPACA_API_KEY / ALPACA_SECRET_KEY not set — see .env.example"
+            )
+        return cls(
+            stock_client=StockHistoricalDataClient(key, secret),
+            option_client=OptionHistoricalDataClient(key, secret),
+            trading_client=TradingClient(key, secret, paper=True),
+        )
+
+    # ── cache ────────────────────────────────────────────────
+    def _cached(self, key: tuple):
+        hit = self._cache.get(key)
+        if hit is None:
+            return None
+        stamped_at, value = hit
+        if self._clock() - stamped_at > CACHE_TTL_SECONDS:
+            del self._cache[key]
+            return None
+        return value
+
+    def _store(self, key: tuple, value) -> None:
+        """Cache only non-empty results, so a failed fetch is retried."""
+        if value is None:
+            return
+        if hasattr(value, "empty") and value.empty:
+            return
+        if isinstance(value, (list, dict)) and not value:
+            return
+        self._cache[key] = (self._clock(), value)
+
+    # ── stock bars ───────────────────────────────────────────
+    def get_stock_bars(self, symbol: str, days: int = 90, timeframe=None) -> pd.DataFrame:
+        """Daily OHLCV bars. Returns an empty frame on any failure."""
+        key = ("bars", symbol, days)
+        hit = self._cached(key)
+        if hit is not None:
+            return hit
+
+        try:
+            from alpaca.data.requests import StockBarsRequest
+            from alpaca.data.timeframe import TimeFrame
+
+            request = StockBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=timeframe or TimeFrame.Day,
+                start=datetime.now(timezone.utc) - timedelta(days=days),
+            )
+            response = self.stock_client.get_stock_bars(request)
+            bars = response.data.get(symbol, []) if hasattr(response, "data") else []
+        except Exception as e:
+            logger.warning("Bar fetch failed for %s: %s", symbol, e)
+            return pd.DataFrame()
+
+        if not bars:
+            logger.warning("No bars returned for %s", symbol)
+            return pd.DataFrame()
+
+        df = pd.DataFrame([{
+            "timestamp": b.timestamp,
+            "open": float(b.open),
+            "high": float(b.high),
+            "low": float(b.low),
+            "close": float(b.close),
+            "volume": float(b.volume),
+        } for b in bars])
+
+        self._store(key, df)
+        return df
+
+    # ── option chain ─────────────────────────────────────────
+    def get_option_chain(
+        self, underlying: str, min_dte: int = MIN_DTE, max_dte: int = MAX_DTE
+    ) -> list[OptionQuote]:
+        """Option chain as OptionQuotes, with open interest merged in.
+
+        Returns [] on any failure. Contracts whose OI or quote cannot be
+        established are dropped rather than guessed at.
+        """
+        key = ("chain", underlying, min_dte, max_dte)
+        hit = self._cached(key)
+        if hit is not None:
+            return hit
+
+        today = datetime.now(timezone.utc).date()
+        try:
+            from alpaca.data.requests import OptionChainRequest
+            snapshots = self.option_client.get_option_chain(
+                OptionChainRequest(
+                    underlying_symbol=underlying,
+                    expiration_date_gte=today + timedelta(days=min_dte),
+                    expiration_date_lte=today + timedelta(days=max_dte),
+                )
+            ) or {}
+        except Exception as e:
+            logger.warning("Option chain fetch failed for %s: %s", underlying, e)
+            return []
+
+        open_interest = self._open_interest_by_symbol(underlying, min_dte, max_dte)
+        if not open_interest:
+            logger.warning("No contract metadata for %s — cannot verify open interest", underlying)
+            return []
+
+        quotes: list[OptionQuote] = []
+        for symbol, snap in snapshots.items():
+            meta = open_interest.get(symbol)
+            if meta is None:
+                # No contract record — open interest unverifiable. Drop it.
+                continue
+            quote = getattr(snap, "latest_quote", None)
+            if quote is None:
+                continue
+            bid, ask = getattr(quote, "bid_price", None), getattr(quote, "ask_price", None)
+            if bid is None or ask is None:
+                continue
+
+            quotes.append(OptionQuote(
+                symbol=symbol,
+                underlying=underlying,
+                strike=float(meta["strike"]),
+                expiry=meta["expiry"],
+                right=meta["right"],
+                bid=float(bid),
+                ask=float(ask),
+                open_interest=int(meta["open_interest"] or 0),
+            ))
+
+        self._store(key, quotes)
+        return quotes
+
+    def _open_interest_by_symbol(self, underlying: str, min_dte: int, max_dte: int) -> dict:
+        """Contract metadata keyed by OCC symbol: strike, expiry, right, OI."""
+        today = datetime.now(timezone.utc).date()
+        try:
+            from alpaca.trading.requests import GetOptionContractsRequest
+            response = self.trading_client.get_option_contracts(
+                GetOptionContractsRequest(
+                    underlying_symbols=[underlying],
+                    expiration_date_gte=today + timedelta(days=min_dte),
+                    expiration_date_lte=today + timedelta(days=max_dte),
+                    limit=10_000,
+                )
+            )
+            contracts = getattr(response, "option_contracts", None) or []
+        except Exception as e:
+            logger.warning("Contract metadata fetch failed for %s: %s", underlying, e)
+            return {}
+
+        out = {}
+        for c in contracts:
+            right = getattr(c.type, "value", c.type)
+            out[c.symbol] = {
+                "strike": c.strike_price,
+                "expiry": c.expiration_date,
+                # Alpaca says "call"/"put"; OptionQuote uses "c"/"p".
+                "right": str(right).lower()[0],
+                "open_interest": c.open_interest,
+            }
+        return out

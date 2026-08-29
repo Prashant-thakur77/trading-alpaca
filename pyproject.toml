@@ -22,6 +22,12 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+filterwarnings = [
+    # websockets.legacy, pulled in transitively by alpaca-py. Not our code and
+    # not actionable here; silenced so real warnings stay visible.
+    "ignore:websockets.legacy is deprecated:DeprecationWarning",
+    "ignore:py_vollib is deprecated:DeprecationWarning",
+]
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
