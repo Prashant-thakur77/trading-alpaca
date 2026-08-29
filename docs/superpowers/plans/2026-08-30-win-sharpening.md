@@ -93,3 +93,71 @@ Surface them as the headline evidence rather than a footnote.
 * **"One symbol loses money"** can read as a bad backtest. Frame as: a harness
   that cannot produce a loser is broken, and an earlier version of ours was.
 * **"Paper only"** can read as untested. Frame as a hard rule, not a limitation.
+
+---
+
+## URGENT: our headline collides with the strongest competitor
+
+`aegis-q` leads with:
+
+> **"The AI can choose. It cannot improvise."**
+
+Ours currently reads:
+
+> **"The model can refuse. It cannot invent."**
+
+Same structure, same claim, same rhythm. A judge reading both back to back
+will notice, and whoever they read second looks derivative. aegis-q is also
+the best-packaged entry in the set: cover image, one-page PDF, six-slide deck
+in PDF and PPTX, a video script, a live dashboard URL, and every backtest
+number tied to `reports/metrics.json` computed from real Alpaca IEX bars, plus
+an honest disclaimer that the legacy backtest is not evidence for the options
+strategy actually submitted.
+
+Worse, the *constraint itself* is not differentiating. aegis-q bounds its AI to
+pick an ID or ABSTAIN with a deterministic fallback. babil restricts its model
+to a five-field proposal schema that cannot set price, strike or quantity.
+Three of us independently built the same guardrail.
+
+### What is actually ours alone
+
+Checked against every competitor repo on disk, no one else has:
+
+1. **A calibration loop that demotes its own analysts.** Brier-scored against
+   resolved outcomes, weights recomputed from the journal each cycle. Nobody
+   else grades their agents at all.
+2. **An adversary whose objections are recorded whether or not they win**, and
+   which is documented changing a live decision from c1 to c4.
+3. **A hash-chained journal a stranger can verify with no credentials**, plus
+   four replayable scenarios that recompute their verdicts in the browser.
+4. **Refusal presented as the product**, with two of four demo scenarios being
+   refusals.
+
+### Recommended headline change
+
+Lead with the self-grading, which is unique, and demote the constraint to
+supporting evidence. Candidate lines, in order of preference:
+
+* **"The desk that grades itself."** Already the project's own subtitle,
+  distinctive, and true only of us.
+* **"Every analyst has a track record. The bad ones lose their vote."**
+* **"It argues with itself before it trades."**
+
+## Competitor evidence standards worth matching
+
+* **aegis-q** ties every figure to a named file that reproduces it, and
+  explicitly disclaims what the evidence does not cover. Match this exactly.
+* **vertex-sentinel** puts a claimed award badge above the fold with no in-repo
+  evidence for it. If a judge cannot verify a headline claim, the whole README
+  becomes suspect. Never do this.
+* **ai-tradingagent-kraken** cites `results/latest/fhe_vs_current_backtest.json`
+  as its evidence file. That file does not exist in the repo; the numbers live
+  in a differently-named file after a rename. Every path we cite must resolve.
+* **babil** claims 476 tests; 476 collect but one fails without credentials
+  set. Our claim must hold on a clean clone with no environment.
+
+### Immediate check on our own claims
+
+Verify that every number and file path on the site and in the README resolves
+on a fresh clone with no `.env` present, since that is exactly how a judge will
+encounter it.
