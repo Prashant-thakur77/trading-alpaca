@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from candidate_builder import OptionQuote
+from exit_monitor import OpenTradeStore
 from journal import Journal
 from risk_guard import RiskGuard, load_risk_config
 
@@ -123,17 +124,23 @@ def bench(tmp_path, monkeypatch):
     guard = RiskGuard(load_risk_config(tmp_path / "risk.yaml"))
     journal = Journal(tmp_path / "journal.jsonl")
 
-    def run(cli=None, data=None, argv=None):
+    def run(cli=None, data=None, argv=None, store=None, premortem=None):
         # --no-llm pins these tests to the deterministic spine they were
         # written against. Every test using this fixture is about preflight,
         # the guard or portfolio-state derivation — none is about candidate
         # selection — so the selector they run under is incidental, while
         # letting the real committee run would put `claude -p` subprocess
         # calls in the suite. The committee path has its own fixture
-        # (`llm_bench`) and its own tests further down.
+        # (`llm_bench`) and its own tests further down. It also pins the
+        # pre-mortem to its deterministic exits, for the same reason.
+        #
+        # The open-trade store defaults into tmp_path so a test can never
+        # write the repo's real logs/open_trades.json.
         return run_session.main(["--no-llm", *(argv or [])], cli=cli or FakeCLI(),
                                 data=data or FakeData(), journal=journal,
-                                guard=guard)
+                                guard=guard, premortem=premortem,
+                                store=store if store is not None
+                                else OpenTradeStore(tmp_path / "open_trades.json"))
 
     run.guard, run.journal, run.tmp_path = guard, journal, tmp_path
     return run
@@ -675,10 +682,19 @@ def llm_bench(tmp_path, monkeypatch):
     guard = RiskGuard(load_risk_config(tmp_path / "risk.yaml"))
     journal = Journal(tmp_path / "journal.jsonl")
 
-    def run(committee, cli=None, data=None, argv=None):
-        return run_session.main(argv or [], cli=cli or FakeCLI(),
-                                data=data or FakeData(), journal=journal,
-                                guard=guard, committee=committee)
+    def run(committee, cli=None, data=None, argv=None, store=None,
+            premortem=None):
+        # The pre-mortem is stubbed to its deterministic exits by default:
+        # this fixture exercises the COMMITTEE path, and the real pre-mortem
+        # would put a `claude -p` subprocess call in the suite.
+        from committee.premortem import deterministic_triggers
+        return run_session.main(
+            argv or [], cli=cli or FakeCLI(), data=data or FakeData(),
+            journal=journal, guard=guard, committee=committee,
+            premortem=premortem or (lambda intent, spot, rv:
+                                    deterministic_triggers(intent)),
+            store=store if store is not None
+            else OpenTradeStore(tmp_path / "open_trades.json"))
 
     run.guard, run.journal, run.tmp_path = guard, journal, tmp_path
     return run
@@ -880,3 +896,182 @@ class TestNotRunVetoRendering:
         out = capsys.readouterr().out
         assert "veto thesis: PASS" in out
         assert "veto blind:  VETO" in out
+
+
+# ── the pre-mortem and the exit monitor are in the session ───
+#
+# Both were built as libraries. A library nobody calls is the same defect the
+# committee had before it was wired in (Sunday-eve finding 1): the code is
+# tested, the pipeline is green, and the live desk does not use it. These
+# tests hold the wiring in place — the pre-mortem runs BEFORE the order is
+# sent, what it produced is written down with the position, and the next
+# cycle actually evaluates it.
+
+def _premortem_entries(journal):
+    return [e["payload"] for e in journal.entries() if e["type"] == "premortem"]
+
+
+def _close_entries(journal):
+    return [e["payload"] for e in journal.entries() if e["type"] == "close"]
+
+
+@pytest.fixture
+def store(tmp_path):
+    from exit_monitor import OpenTradeStore
+    return OpenTradeStore(tmp_path / "open_trades.json")
+
+
+class TestPremortemRunsBeforeTheOrder:
+    def test_a_live_cycle_journals_the_premortem_triggers(self, bench, store):
+        assert bench(store=store) == 0
+        entries = _premortem_entries(bench.journal)
+        assert len(entries) == 1
+        kinds = [t["kind"] for t in entries[0]["triggers"]]
+        assert "dte_below" in kinds, "the 3-DTE hard rule must be recorded"
+
+    def test_the_premortem_runs_before_anything_is_sent(self, bench, store):
+        """Order matters: triggers written after the fill would leave a live
+        position with no exit plan if the process died in between."""
+        bench(store=store)
+        types = [e["type"] for e in bench.journal.entries()]
+        assert types.index("premortem") < types.index("proposal")
+
+    def test_a_raising_premortem_still_protects_and_still_trades(
+            self, bench, store):
+        """Fail soft on the LLM: a broken pre-mortem must not stop the desk,
+        and must not leave the position without the deterministic exits."""
+        def boom(intent, spot, realized_vol):
+            raise RuntimeError("claude is down")
+
+        cli = FakeCLI()
+        assert bench(cli=cli, store=store, premortem=boom) == 0
+        assert cli.posted, "a pre-mortem outage must not block a guarded trade"
+        kinds = [t["kind"] for t in _premortem_entries(bench.journal)[0]["triggers"]]
+        assert "dte_below" in kinds
+
+    def test_a_dry_run_shows_the_triggers_without_journalling_them(
+            self, bench, store, capsys):
+        assert bench(store=store, argv=["--dry-run"]) == 0
+        assert "pre-mortem" in capsys.readouterr().out.lower()
+        assert _premortem_entries(bench.journal) == [], (
+            "a rehearsal stays out of the judged chain")
+
+
+class TestTheOpenBookIsRemembered:
+    def test_a_filled_trade_is_written_to_the_open_book(self, bench, store):
+        assert bench(store=store) == 0
+        trades = store.load()
+        assert len(trades) == 1
+        trade = trades[0]
+        assert trade.intent.underlying == "SPY"
+        assert trade.contracts >= 1
+        assert trade.entry_spot == pytest.approx(450.0)
+        assert any(t.kind == "dte_below" for t in trade.triggers)
+
+    def test_a_dry_run_never_writes_to_the_open_book(self, bench, store):
+        assert bench(store=store, argv=["--dry-run"]) == 0
+        assert store.load() == []
+
+    def test_a_guard_refusal_writes_nothing_to_the_open_book(self, bench, store):
+        """Nothing was opened, so there is nothing to manage."""
+        (bench.tmp_path / "KILL_SWITCH").touch()
+        bench(store=store)
+        assert store.load() == []
+
+
+def _priced_chain():
+    """A chain whose verticals carry a REAL credit.
+
+    The shared `_chain()` prices every contract identically, which is fine for
+    preflight and guard tests but makes every spread a $0.00 credit — and a
+    0% profit target can never be reached, so it cannot exercise an exit.
+    Here a put is worth more the closer its strike is to spot, so the 445/440
+    bull put spread collects exactly 1.00.
+    """
+    quotes = []
+    for strike in (430.0, 435.0, 440.0, 445.0, 455.0, 460.0, 465.0, 470.0):
+        for right in ("p", "c"):
+            mid = (1.00 + (strike - 430.0) * 0.2 if right == "p"
+                   else 1.00 + (470.0 - strike) * 0.2)
+            quotes.append(OptionQuote(_occ(strike, right), "SPY", strike, EXPIRY,
+                                      right, mid * 0.98, mid * 1.02, 800))
+    return quotes
+
+
+class TestTheNextCycleManagesTheBook:
+    def _open_a_position(self, bench, store):
+        assert bench(store=store, data=FakeData(chain=_priced_chain())) == 0
+        trades = store.load()
+        assert trades, "precondition: a position must be open"
+        assert trades[0].intent.net_credit > 0, "precondition: a real credit"
+        return trades[0]
+
+    def _book_at_the_profit_target(self, trade):
+        """Position rows whose marks have decayed past the 50% target."""
+        rows = []
+        for leg in trade.intent.legs:
+            qty = leg.contracts if leg.side == "buy" else -leg.contracts
+            mark = 0.10 if leg.side == "buy" else 0.20
+            rows.append({"symbol": leg.quote.symbol, "qty": str(qty),
+                         "market_value": f"{mark * abs(qty) * 100 * (1 if qty > 0 else -1):.2f}",
+                         "current_price": f"{mark:.2f}"})
+        return rows
+
+    def test_the_next_cycle_closes_a_position_at_the_profit_target(
+            self, bench, store):
+        trade = self._open_a_position(bench, store)
+        cli = FakeCLI(positions=self._book_at_the_profit_target(trade),
+                      orders=[{"id": "w-1", "symbol": "SPY"}])
+        assert bench(cli=cli, store=store,
+                     data=FakeData(chain=_priced_chain())) == 0
+
+        closes = _close_entries(bench.journal)
+        assert len(closes) == 1, "the position must be closed and journalled"
+        assert closes[0]["underlying"] == "SPY"
+        assert isinstance(closes[0]["realized_pnl"], float)
+        assert store.load() == [], "a closed position leaves the open book"
+
+    def test_a_closed_position_makes_the_calibration_loop_resolvable(
+            self, llm_bench, store):
+        """The whole point of the package, through main(): a real cycle plus
+        a real close must produce something calibration can grade."""
+        from calibration import resolved_predictions
+
+        committee = FakeCommittee(pick=lambda c: c[0])
+        data = FakeData(chain=_priced_chain())
+        assert llm_bench(committee, store=store, data=data) == 0
+        trade = store.load()[0]
+        assert trade.snapshot_hash, "the cycle's join key must be carried over"
+
+        # Journal an analyst_view for that cycle, as the real committee does.
+        llm_bench.journal.append("analyst_view", {
+            "role": "vol_analyst", "probability": 0.8, "abstained": False,
+            "snapshot_hash": trade.snapshot_hash})
+
+        cli = FakeCLI(positions=TestTheNextCycleManagesTheBook()
+                      ._book_at_the_profit_target(trade),
+                      orders=[{"id": "w-1", "symbol": "SPY"}])
+        assert llm_bench(committee, cli=cli, store=store, data=data) == 0
+        assert resolved_predictions(llm_bench.journal, "vol_analyst") == [(0.8, True)]
+
+    def test_a_dry_run_never_sends_a_closing_order(self, bench, store):
+        trade = self._open_a_position(bench, store)
+        cli = FakeCLI(positions=self._book_at_the_profit_target(trade))
+        assert bench(cli=cli, store=store, argv=["--dry-run"],
+                     data=FakeData(chain=_priced_chain())) == 0
+        assert cli.posted == [], "a rehearsal must not close a real position"
+        assert _close_entries(bench.journal) == []
+
+    def test_a_position_gone_from_the_book_leaves_the_open_book(
+            self, bench, store):
+        self._open_a_position(bench, store)
+        cli = FakeCLI(positions=[], orders=[{"id": "w-1", "symbol": "SPY"}])
+        assert bench(cli=cli, store=store,
+                     data=FakeData(chain=_priced_chain())) == 0
+        assert store.load() == []
+
+    def test_an_unreadable_open_book_does_not_stop_the_cycle(self, bench, tmp_path):
+        from exit_monitor import OpenTradeStore
+        path = tmp_path / "open_trades.json"
+        path.write_text("{ not json")
+        assert bench(store=OpenTradeStore(path)) == 0

@@ -188,6 +188,14 @@ def _cached_client(client, cache, model: str):
     return call
 
 
+#: Public alias. Anything else that spends an LLM call inside a session — the
+#: pre-mortem, for one — must route through THIS wrapper rather than build its
+#: own: the prompt cache is simultaneously the cost saver, the audit record
+#: and the deterministic-replay corpus, so a call that bypassed it would make
+#: a replayed cycle diverge from the one that was recorded.
+cached_client = _cached_client
+
+
 def _calibration_weights(journal, roles) -> dict[str, float]:
     """Per-role voting weight from the journal's resolved outcomes.
 

@@ -457,3 +457,81 @@ class TestExitEventShape:
                           closed=False, still_open=True, reason="r")
         with pytest.raises(Exception):
             event.closed = True
+
+
+# ── persisting the open book between cycles ─────────────────
+#
+# Each `make session` run is a fresh process, so a position opened by one
+# cycle is invisible to the next unless the desk writes down what it opened.
+# The broker's position rows are not enough on their own: they carry no
+# structure, no entry credit, no snapshot_hash and no pre-mortem triggers —
+# everything needed to close the position correctly and to attribute the
+# outcome back to the analysts who chose it.
+
+class TestOpenTradeStore:
+    def test_a_trade_survives_a_round_trip(self, tmp_path):
+        from exit_monitor import OpenTradeStore
+
+        store = OpenTradeStore(tmp_path / "open_trades.json")
+        trade = _trade(triggers=[ExitTrigger(KIND_UNDERLYING_BEYOND, 492.0, "why")],
+                       contracts=2, entry_spot=501.5, snapshot_hash="abc123")
+        store.save([trade])
+
+        back = OpenTradeStore(tmp_path / "open_trades.json").load()
+        assert len(back) == 1
+        restored = back[0]
+        assert restored.order_id == trade.order_id
+        assert restored.contracts == 2
+        assert restored.entry_spot == pytest.approx(501.5)
+        assert restored.snapshot_hash == "abc123"
+        assert restored.triggers == trade.triggers
+
+    def test_the_restored_intent_can_still_build_a_closing_order(self, tmp_path):
+        """The whole point of persisting it: a later process must be able to
+        unwind the position it did not open."""
+        from options_orders import closing_payload
+        from exit_monitor import OpenTradeStore
+
+        store = OpenTradeStore(tmp_path / "open_trades.json")
+        store.save([_trade()])
+        restored = store.load()[0]
+
+        payload = closing_payload(restored.intent, 1, 0.40)
+        assert [leg["symbol"] for leg in payload["legs"]] == [
+            _occ(495, "p"), _occ(490, "p")]
+        assert payload["legs"][0]["side"] == "buy"
+        assert restored.intent.net_credit == pytest.approx(1.00)
+        assert restored.intent.max_loss == pytest.approx(400.0)
+
+    def test_a_missing_file_loads_as_an_empty_book(self, tmp_path):
+        from exit_monitor import OpenTradeStore
+        assert OpenTradeStore(tmp_path / "nope.json").load() == []
+
+    def test_a_corrupt_file_loads_as_empty_and_does_not_raise(self, tmp_path, caplog):
+        from exit_monitor import OpenTradeStore
+        path = tmp_path / "open_trades.json"
+        path.write_text("{not json at all")
+        with caplog.at_level("ERROR"):
+            assert OpenTradeStore(path).load() == []
+        assert "open trade" in caplog.text.lower()
+
+    def test_one_unreadable_record_does_not_lose_the_others(self, tmp_path):
+        import json
+        from exit_monitor import OpenTradeStore
+
+        path = tmp_path / "open_trades.json"
+        store = OpenTradeStore(path)
+        store.save([_trade(order_id="good")])
+        records = json.loads(path.read_text())
+        records.insert(0, {"order_id": "broken"})
+        path.write_text(json.dumps(records))
+
+        loaded = OpenTradeStore(path).load()
+        assert [t.order_id for t in loaded] == ["good"]
+
+    def test_saving_an_empty_book_clears_the_file(self, tmp_path):
+        from exit_monitor import OpenTradeStore
+        store = OpenTradeStore(tmp_path / "open_trades.json")
+        store.save([_trade()])
+        store.save([])
+        assert store.load() == []

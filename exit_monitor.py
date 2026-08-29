@@ -38,14 +38,17 @@ rejection, a data outage or a raising journal produces an `ExitEvent`
 carrying the error and leaves the position open and still monitored — it
 never opens a position, and it never reports a P&L that did not happen.
 """
+import json
 import logging
 import time
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 from analytics import (
     CONTRACT_MULTIPLIER, implied_vol, time_to_expiry_years,
 )
+from candidate_builder import Leg, OptionQuote, TradeIntent
 from committee.premortem import (
     KIND_CREDIT_DECAY, KIND_DTE_BELOW, KIND_IV_SPIKE, KIND_UNDERLYING_BEYOND,
     ExitTrigger, deterministic_triggers,
@@ -533,3 +536,141 @@ def _poll(cli, order_id: str, poll_seconds: int, clock, sleep) -> dict:
         if clock() >= deadline:
             return last
         sleep(1)
+
+
+# ── persisting the open book between processes ──────────────
+#
+# Each `make session` run is a fresh process, so a position opened by one
+# cycle is invisible to the next unless the desk writes down what it opened.
+# The broker's own position rows are not enough: they carry the symbols and
+# the marks, but not the structure, not the credit received at entry, not the
+# pre-mortem's triggers, and not the snapshot_hash that attributes the
+# eventual outcome back to the analysts who chose the trade. Without those
+# last two the exit is uninformed and the calibration join is impossible.
+#
+# JSON rather than pickle, deliberately: this file is read by a later process
+# and is worth being able to inspect by eye during a live session.
+
+def _quote_record(q: OptionQuote) -> dict:
+    return {"symbol": q.symbol, "underlying": q.underlying, "strike": q.strike,
+            "expiry": q.expiry.isoformat(), "right": q.right, "bid": q.bid,
+            "ask": q.ask, "open_interest": q.open_interest}
+
+
+def _quote_from_record(r: dict) -> OptionQuote:
+    return OptionQuote(
+        symbol=str(r["symbol"]), underlying=str(r["underlying"]),
+        strike=float(r["strike"]), expiry=date.fromisoformat(str(r["expiry"])),
+        right=str(r["right"]), bid=float(r["bid"]), ask=float(r["ask"]),
+        open_interest=int(r["open_interest"]),
+    )
+
+
+def trade_record(trade: OpenTrade) -> dict:
+    """One `OpenTrade` as plain JSON-serialisable data."""
+    intent = trade.intent
+    return {
+        "order_id": trade.order_id,
+        "contracts": int(trade.contracts),
+        "entry_spot": float(trade.entry_spot),
+        "snapshot_hash": trade.snapshot_hash,
+        "opened_at": trade.opened_at,
+        "triggers": [{"kind": t.kind, "threshold": t.threshold,
+                      "rationale": t.rationale} for t in trade.triggers],
+        "intent": {
+            "underlying": intent.underlying,
+            "structure": intent.structure,
+            "contracts": intent.contracts,
+            "net_credit": intent.net_credit,
+            "max_loss": intent.max_loss,
+            "max_profit": intent.max_profit,
+            "breakevens": list(intent.breakevens),
+            "dte": intent.dte,
+            "rationale": intent.rationale,
+            "legs": [{"quote": _quote_record(leg.quote), "side": leg.side,
+                      "contracts": leg.contracts} for leg in intent.legs],
+        },
+    }
+
+
+def trade_from_record(record: dict) -> OpenTrade:
+    """Rebuild an `OpenTrade`. Raises on anything it cannot fully restore.
+
+    Raising is right here and swallowing is not: a half-restored intent would
+    build a *wrong* closing order — the wrong strikes, the wrong sides, or a
+    max_loss that no longer matches the position. `OpenTradeStore.load` turns
+    the raise into "drop this one record, keep the rest, log loudly".
+    """
+    i = record["intent"]
+    intent = TradeIntent(
+        underlying=str(i["underlying"]), structure=str(i["structure"]),
+        legs=tuple(Leg(quote=_quote_from_record(l["quote"]), side=str(l["side"]),
+                       contracts=int(l["contracts"])) for l in i["legs"]),
+        contracts=int(i["contracts"]), net_credit=float(i["net_credit"]),
+        max_loss=float(i["max_loss"]), max_profit=float(i["max_profit"]),
+        breakevens=tuple(float(b) for b in i["breakevens"]),
+        dte=int(i["dte"]), rationale=str(i.get("rationale", "")),
+    )
+    return OpenTrade(
+        order_id=str(record["order_id"]), intent=intent,
+        triggers=tuple(ExitTrigger(kind=str(t["kind"]),
+                                   threshold=float(t["threshold"]),
+                                   rationale=str(t.get("rationale", "")))
+                       for t in record.get("triggers", [])),
+        contracts=int(record.get("contracts", 1)),
+        entry_spot=float(record.get("entry_spot", 0.0)),
+        snapshot_hash=str(record.get("snapshot_hash", "")),
+        opened_at=str(record.get("opened_at", "")),
+    )
+
+
+class OpenTradeStore:
+    """The desk's memory of what it currently has open.
+
+    Never raises on read. A missing file is an empty book; a corrupt file or
+    an unrestorable record is logged at error level and skipped, because a
+    session that crashes on its own state file cannot manage anything at all
+    — while a session that silently drops a record leaves a position
+    unmonitored, so the log must be loud enough to notice.
+    """
+
+    def __init__(self, path: Path | str):
+        self.path = Path(path)
+
+    def load(self) -> list[OpenTrade]:
+        if not self.path.exists():
+            return []
+        try:
+            records = json.loads(self.path.read_text() or "[]")
+        except (OSError, ValueError) as e:
+            logger.error("Open trade store %s is unreadable (%s) — treating the "
+                         "book as empty; open positions will NOT be monitored "
+                         "this cycle", self.path, e)
+            return []
+        if not isinstance(records, list):
+            logger.error("Open trade store %s is a %s, expected a list — "
+                         "treating the book as empty", self.path,
+                         type(records).__name__)
+            return []
+
+        trades = []
+        for record in records:
+            try:
+                trades.append(trade_from_record(record))
+            except Exception as e:  # noqa: BLE001 - one bad record, not all of them
+                logger.error("Unrestorable open trade record %r (%s) — skipped; "
+                             "that position will not be monitored",
+                             (record or {}).get("order_id", "?"), e)
+        return trades
+
+    def save(self, trades) -> None:
+        """Overwrite the store. A write failure is logged, never raised: the
+        position exists at the broker whatever this file says."""
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(
+                [trade_record(t) for t in trades], indent=2, default=str))
+        except Exception as e:  # noqa: BLE001
+            logger.error("Could not write the open trade store %s: %s — the "
+                         "next cycle may not know about an open position",
+                         self.path, e, exc_info=True)

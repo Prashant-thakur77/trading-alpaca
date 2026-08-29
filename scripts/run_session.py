@@ -39,12 +39,16 @@ from analytics import (
     CONTRACT_MULTIPLIER, atm_implied_vol, greeks, implied_vol, position_greeks,
     realized_volatility, time_to_expiry_years,
 )
-from committee.decide import ABSTAIN, NOT_RUN, CommitteeDecision
+from committee.decide import ABSTAIN, NOT_RUN, CommitteeDecision, cached_client
 from committee.decide import decide as committee_decide
+from committee.premortem import (
+    PREMORTEM_MODEL, deterministic_triggers, premortem as run_premortem,
+)
 from candidate_builder import (
     build_bear_call_spread, build_bull_put_spread, build_long_straddle,
 )
 from executor_options import OptionsExecutor
+from exit_monitor import OpenTrade, OpenTradeStore, monitor_positions
 from journal import Journal
 from options_orders import build_mleg_payload
 from risk_guard import PortfolioState, RiskGuard, load_risk_config
@@ -56,6 +60,11 @@ JOURNAL_PATH = REPO_ROOT / "logs" / "journal.jsonl"
 # the /judge page reads back, so it lives on disk beside the journal rather
 # than in a temp dir that a reboot would erase.
 PROMPT_CACHE_DIR = REPO_ROOT / "logs" / "prompt_cache"
+# What the desk currently has open, so the NEXT process can manage it. Each
+# `make session` run is a fresh process; the broker's position rows carry the
+# symbols but not the structure, the entry credit, the pre-mortem's triggers
+# or the snapshot_hash that attributes the outcome back to the analysts.
+OPEN_TRADES_PATH = REPO_ROOT / "logs" / "open_trades.json"
 
 # Exit codes. 0 is "the cycle completed" — including a deliberate abstention,
 # which is a first-class outcome (hard rule 4). Anything else means the cycle
@@ -496,6 +505,130 @@ def print_committee(decision: CommitteeDecision) -> None:
     print(f"    veto blind:  {_veto_verdict(decision.blind_ok, decision.blind_reason)}")
 
 
+# ── the pre-mortem and the open book ─────────────────────────
+
+def _make_default_premortem():
+    """The production pre-mortem: an LLM call routed through the SAME prompt
+    cache the committee uses, so a replayed cycle re-derives the identical
+    triggers rather than diverging from what was recorded."""
+    def call(intent, spot, realized_vol):
+        from llm.cache import PromptCache
+        from llm.client import call_claude
+        client = cached_client(call_claude, PromptCache(PROMPT_CACHE_DIR),
+                               PREMORTEM_MODEL)
+        return run_premortem(intent, spot, realized_vol, client=client)
+    return call
+
+
+def _select_premortem(no_llm: bool):
+    """`--no-llm` means no LLM anywhere in the loop, the pre-mortem included.
+
+    The deterministic exits are the whole point of the fallback: the desk
+    still closes at 50% of the credit and still closes at 3 DTE, it just has
+    no model-authored failure modes on top.
+    """
+    if no_llm:
+        return lambda intent, spot, realized_vol: deterministic_triggers(
+            intent, reason="--no-llm: no LLM in the loop")
+    return _make_default_premortem()
+
+
+def build_exit_plan(premortem, chosen, spot, realized_vol):
+    """Compile the pre-mortem into exit triggers. Never raises.
+
+    An injected pre-mortem that blows up must not stop a guarded trade, and
+    must not leave the position without its deterministic exits — so any
+    escape falls back to `deterministic_triggers`, exactly as
+    `committee.premortem` does internally for an LLM failure.
+    """
+    try:
+        triggers = premortem(chosen, spot, realized_vol)
+    except Exception as e:  # noqa: BLE001 - fail soft on the LLM, never open-ended
+        logger.error("Pre-mortem failed (%s: %s) — deterministic exits only",
+                     type(e).__name__, e, exc_info=True)
+        triggers = deterministic_triggers(chosen, reason="pre-mortem unavailable")
+    return tuple(triggers or deterministic_triggers(chosen))
+
+
+def print_exit_plan(triggers) -> None:
+    print("  pre-mortem exit plan:")
+    for trigger in triggers:
+        print(f"    {trigger.kind:<18} {trigger.threshold:<10g} {trigger.rationale}")
+
+
+def _trigger_payloads(triggers) -> list[dict]:
+    return [{"kind": t.kind, "threshold": t.threshold, "rationale": t.rationale}
+            for t in triggers]
+
+
+def remember_open_trade(store, result, chosen, triggers, spot,
+                        snapshot_hash: str) -> None:
+    """Write the new position into the open book so the NEXT cycle can exit it.
+
+    Records the guard-APPROVED contract count from the execution result, not
+    `chosen.contracts`: a downsized position must be closed at the size that
+    was actually opened. Never raises — the position exists at the broker
+    whatever this file ends up saying, and an exception here after a fill
+    would look to the caller like the trade did not happen.
+    """
+    try:
+        store.save([*store.load(), OpenTrade(
+            order_id=result.order_id, intent=chosen, triggers=tuple(triggers),
+            contracts=result.contracts, entry_spot=spot,
+            snapshot_hash=snapshot_hash,
+            opened_at=datetime.now(timezone.utc).isoformat(),
+        )])
+    except Exception as e:  # noqa: BLE001
+        logger.error("Could not record the open trade (%s) — the next cycle "
+                     "may not manage it: %s", result.order_id, e, exc_info=True)
+
+
+def manage_open_book(cli, data, guard, journal, store, working_order_ids) -> None:
+    """Evaluate the exits on everything already open, before opening anything.
+
+    Runs FIRST in a live cycle: managing the book outranks adding to it, and
+    an exit must not be skipped just because this cycle later abstains on a
+    working order or a failed liquidity gate.
+
+    A trade the monitor reports as no longer open is dropped from the store —
+    unless the broker still shows a working order for it, which is the case
+    where an order was submitted but has not filled yet and its legs are
+    legitimately not in the position list.
+
+    Never raises: a failure here must not stop the cycle, and it must never
+    open a position.
+    """
+    try:
+        trades = store.load()
+    except Exception as e:  # noqa: BLE001 - the store is state, not a gate
+        logger.error("Could not read the open book: %s", e, exc_info=True)
+        return
+    if not trades:
+        return
+
+    print(f"  managing {len(trades)} open trade(s) before looking for a new one")
+    try:
+        events = monitor_positions(cli, data, guard, journal,
+                                   {t.order_id: t for t in trades})
+    except Exception as e:  # noqa: BLE001 - monitoring must never crash a cycle
+        logger.error("Exit monitoring failed: %s", e, exc_info=True)
+        return
+
+    by_id = {e.order_id: e for e in events}
+    for event in events:
+        detail = event.error or event.reason
+        marker = "CLOSED" if event.closed else "open  "
+        pnl = "" if event.realized_pnl is None else f" (${event.realized_pnl:+,.2f})"
+        print(f"    {marker} {event.underlying} {event.structure}{pnl} — {detail}")
+
+    keep = [t for t in trades
+            if by_id.get(t.order_id) is None
+            or by_id[t.order_id].still_open
+            or t.order_id in working_order_ids]
+    if len(keep) != len(trades):
+        store.save(keep)
+
+
 # ── session ──────────────────────────────────────────────────
 
 def _spot_lookup(data, seed: dict[str, float]):
@@ -548,7 +681,7 @@ def _load_dotenv(path: Path) -> None:
 
 
 def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
-         committee=None) -> int:
+         committee=None, premortem=None, store=None) -> int:
     _load_dotenv(REPO_ROOT / ".env")
     parser = argparse.ArgumentParser(description="Run one options session cycle")
     parser.add_argument("--symbol", default="SPY")
@@ -610,6 +743,25 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
         print(f"  Preflight failed: {err}")
         return EXIT_FAILED
 
+    if data is None:
+        try:
+            from alpaca_data import AlpacaData
+            data = AlpacaData.from_env()
+        except Exception as e:
+            print(f"  DATA FETCH FAILED — market data unavailable ({e}).")
+            return EXIT_FAILED
+
+    # ── manage what is already open, BEFORE looking for anything new ──
+    # An exit must not be skipped because this cycle later abstains on a
+    # working order or an empty candidate list. A dry run is a rehearsal and
+    # never sends a closing order.
+    store = store if store is not None else OpenTradeStore(OPEN_TRADES_PATH)
+    if args.dry_run:
+        print("  DRY RUN — the open book is not managed and nothing is closed.")
+    else:
+        manage_open_book(cli, data, guard, journal, store,
+                         {str(o.get("id", "")) for o in working})
+
     # C1: an unfilled `day` order stays working all session and does not show
     # up in `position list`. Submitting again would put two identical spreads
     # in the market, and both can fill.
@@ -620,14 +772,6 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
                         f"{len(already_working)} working order(s) already open for "
                         f"{symbol} ({ids}) — not stacking a second one",
                         {"underlying": symbol, "order_ids": ids}, args.dry_run)
-
-    if data is None:
-        try:
-            from alpaca_data import AlpacaData
-            data = AlpacaData.from_env()
-        except Exception as e:
-            print(f"  DATA FETCH FAILED — market data unavailable ({e}).")
-            return EXIT_FAILED
 
     try:
         bars = data.get_stock_bars(symbol, days=30)
@@ -663,6 +807,11 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
           f"{f'{market_atm_iv * 100:.2f}%' if market_atm_iv is not None else 'unavailable'}")
 
     # ── selection: the committee proposes, RiskGuard disposes ──
+    realized_vol = realized_volatility(bars)
+    # The join key that lets a later `close` entry resolve this cycle's
+    # analyst predictions (calibration.resolved_predictions). Empty on the
+    # --no-llm path, where there were no predictions to resolve.
+    snapshot_hash = ""
     if args.no_llm:
         print("  mode: DETERMINISTIC (--no-llm) — no LLM in the loop; "
               "selecting the most credit per dollar risked")
@@ -672,7 +821,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
               "-> thesis veto + blind veto")
         decision = run_committee(
             committee or _make_default_committee(market_atm_iv), symbol, spot,
-            realized_volatility(bars), candidates,
+            realized_vol, candidates,
             # A dry run is a rehearsal and stays out of the judged chain, the
             # same rule `_abstain(dry_run=True)` already follows. In a live
             # run the committee journals every stage itself (hard rule 5).
@@ -686,6 +835,7 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
                              "snapshot_hash": decision.snapshot_hash},
                             args.dry_run)
         chosen = decision.chosen
+        snapshot_hash = decision.snapshot_hash
 
     print(f"  Selected {chosen.structure}: credit ${chosen.net_credit:.2f}, "
           f"max loss ${chosen.max_loss:,.2f}")
@@ -740,6 +890,17 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
     print(f"  guard: {getattr(verdict.decision, 'value', verdict.decision)} — "
           f"{verdict.reason} ({verdict.approved_contracts} contract(s) approved)")
 
+    # The pre-mortem runs BEFORE the order is sent, never after: triggers
+    # written after the fill would leave a live position with no exit plan if
+    # the process died in between. It runs only for a candidate the guard
+    # would actually let through, so a refusal costs no LLM call.
+    triggers = ()
+    if verdict.is_tradeable and verdict.approved_contracts >= 1:
+        triggers = build_exit_plan(
+            premortem or _select_premortem(args.no_llm), chosen, spot,
+            realized_vol)
+        print_exit_plan(triggers)
+
     if args.dry_run:
         # The dry run exists to show exactly what the live run would do, so it
         # runs the whole preflight and prints the wire payload it would send.
@@ -773,10 +934,26 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
             logger.error("Could not journal the guard verdict: %s", e, exc_info=True)
         return EXIT_OK
 
+    # Journalled before submission, for the same reason it is computed before
+    # submission: a position must never exist at the broker without its exit
+    # plan already written down (hard rule 5).
+    try:
+        journal.append("premortem", {
+            "underlying": chosen.underlying, "structure": chosen.structure,
+            "snapshot_hash": snapshot_hash,
+            "triggers": _trigger_payloads(triggers),
+        })
+    except Exception as e:
+        logger.error("Could not journal the pre-mortem: %s", e, exc_info=True)
+
     executor = OptionsExecutor(cli, guard, journal)
     result = executor.submit(chosen, state,
                              position_delta=pos_delta, position_vega=pos_vega)
     print(f"  Result: {result.status} ({result.reason})")
+
+    if result.status in ("filled", "partially_filled") and result.contracts > 0:
+        remember_open_trade(store, result, chosen, triggers, spot, snapshot_hash)
+
     if result.status == "partially_filled":
         print("  NOTE: the remainder is still working — the next cycle will see it.")
     return EXIT_OK if result.status in (
