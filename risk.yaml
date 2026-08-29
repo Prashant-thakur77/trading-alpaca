@@ -1,0 +1,51 @@
+# risk.yaml — SINGLE SOURCE OF TRUTH for every risk limit.
+#
+# RiskGuard reads this file. Nothing else defines a limit; if a number matters,
+# it lives here. Every order passes the guard before it can reach a broker
+# (CLAUDE.md hard rule 2), and any error, missing field or guard exception
+# results in DENY — never a trade.
+
+account:
+  # Paper account only, ever (hard rule 3). Startup refuses to run otherwise.
+  paper_only: true
+  initial_capital: 100000.0
+  # Minimum Alpaca options trading level for spreads (level 2 = defined-risk).
+  min_options_level: 2
+
+position:
+  # 1% of $100k. Hard cap on a single position's defined max loss.
+  max_loss_per_position: 1000.0
+  max_positions: 3
+  max_new_per_underlying_per_day: 1
+
+portfolio:
+  # Net Greeks across all open positions, in position (x100) terms.
+  max_abs_net_delta: 30.0
+  max_abs_net_vega: 200.0
+
+contract:
+  min_dte: 7
+  max_dte: 45
+  # Bid-ask spread as a fraction of mid.
+  max_spread_pct_of_mid: 0.10
+  min_open_interest: 100
+
+daily:
+  # 2% of initial capital realized down on the day = halt trading.
+  max_daily_loss_pct: 2.0
+  # 3 consecutive losing trades = halve position size.
+  consecutive_losses_to_halve: 3
+  size_scale_after_losses: 0.5
+
+structures:
+  # Nothing outside this list can be sent. Naked shorts are unrepresentable.
+  allowed:
+    - bull_put_spread
+    - bear_call_spread
+    - iron_condor
+    - long_straddle
+
+kill_switch:
+  # Either trips a halt: the file existing, or the env var being set to 1.
+  file: KILL_SWITCH
+  env: KILL
