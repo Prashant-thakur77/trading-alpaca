@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from candidate_builder import (
     OptionQuote, Leg, TradeIntent, build_bull_put_spread, build_bear_call_spread,
     build_long_straddle, build_bull_call_spread, build_bear_put_spread,
+    build_long_iron_butterfly,
 )
 from llm.client import LLMResponse
 from committee.veto import thesis_check, blind_review
@@ -80,6 +81,40 @@ def test_long_straddle_is_near_delta_neutral():
     )
     ok, reason = thesis_check(intent, SPOT)
     assert ok is True
+
+
+def _long_iron_fly(contracts=1):
+    """Long the 500 straddle, short the 495/505 wings."""
+    return build_long_iron_butterfly(
+        long_call=_q(500, "c", 5.90, 6.10), long_put=_q(500, "p", 5.85, 6.05),
+        short_call=_q(505, "c", 3.40, 3.60), short_put=_q(495, "p", 3.35, 3.55),
+        contracts=contracts,
+    )
+
+
+def test_long_iron_butterfly_is_judged_against_the_neutral_band():
+    """It is delta-neutral like a straddle, not directional like a debit
+    vertical. Judged against a directional rule — or dropped through to the
+    unknown-structure fail-closed — it would be vetoed 100% of the time, and
+    the desk would be back to having no way to express a long-vol view."""
+    ok, reason = thesis_check(_long_iron_fly(), SPOT)
+    assert ok is True
+    assert "neutral band" in reason.lower()
+
+
+def test_long_iron_butterfly_is_not_an_unknown_structure(): 
+    ok, reason = thesis_check(_long_iron_fly(), SPOT)
+    assert "unknown structure" not in reason.lower()
+
+
+def test_long_iron_butterfly_neutral_band_scales_with_size():
+    """The band is `NEUTRAL_DELTA_THRESHOLD * contracts`, so the same
+    structure with the same thesis does not become directional by being
+    bigger — RiskGuard owns sizing, and it can downsize where this can only
+    refuse."""
+    verdicts = [thesis_check(_long_iron_fly(contracts=n), SPOT)[0]
+                for n in (1, 2, 3)]
+    assert verdicts == [True, True, True]
 
 
 def test_neutral_thesis_verdict_is_invariant_to_contract_count():

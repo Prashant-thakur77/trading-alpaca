@@ -87,9 +87,10 @@ MAX_IV_THRESHOLD = 5.0      # 500% annualized
 
 PREMORTEM_MODEL = "claude-haiku-4-5"
 
-#: Structures whose loss comes from the underlying moving DOWN / UP. A
-#: long straddle appears in neither: it loses to the underlying standing
-#: still, so no single "beyond" level describes its failure.
+#: Structures whose loss comes from the underlying moving DOWN / UP. The
+#: long straddle and the long iron butterfly appear in neither: both lose to
+#: the underlying standing still, so no single "beyond" level describes their
+#: failure — and a level on either side names the side they are WINNING on.
 #:
 #: The debit verticals sit alongside their credit counterparts: a bull CALL
 #: spread loses to the downside exactly as a bull PUT spread does, and a bear
@@ -269,7 +270,8 @@ def _reject_underlying(value, intent, spot) -> str:
         return ""
 
     return (f"{structure} does not lose money by the underlying reaching a "
-            f"level (a long straddle loses by it standing still)")
+            f"level (a long straddle and a long iron butterfly both lose by "
+            f"the underlying standing still, on neither side)")
 
 
 def deterministic_triggers(intent, reason: str = "") -> tuple[ExitTrigger, ...]:

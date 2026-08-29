@@ -31,6 +31,7 @@ import pytest
 from candidate_builder import (
     OptionQuote, build_bear_call_spread, build_bull_put_spread,
     build_long_straddle, build_bull_call_spread, build_bear_put_spread,
+    build_long_iron_butterfly,
 )
 from committee.premortem import (
     FORCED_DTE_BELOW, KIND_CREDIT_DECAY, KIND_DTE_BELOW, KIND_IV_SPIKE,
@@ -70,6 +71,13 @@ def _bull_call():
 
 def _bear_put():
     return build_bear_put_spread(_q(500, "p", 5.85, 6.05), _q(495, "p", 3.40, 3.60))
+
+
+def _long_iron_fly():
+    return build_long_iron_butterfly(
+        long_call=_q(500, "c", 5.90, 6.10), long_put=_q(500, "p", 5.85, 6.05),
+        short_call=_q(505, "c", 3.40, 3.60), short_put=_q(495, "p", 3.35, 3.55),
+    )
 
 
 def _client(payload, ok=True, error=""):
@@ -370,3 +378,39 @@ class TestExitTriggerShape:
             "failure_modes": [{"kind": KIND_DTE_BELOW, "threshold": 7,
                                "rationale": "gamma risk"}]}))
         assert all(isinstance(t.threshold, float) for t in triggers)
+
+
+
+class TestLongIronButterflyTriggers:
+    """The butterfly loses by the underlying STANDING STILL, exactly as a
+    straddle does, so no single "underlying beyond X" level describes its
+    failure — on either side. A structure map that silently treated it as
+    directional would attach an exit that fires on the winning side."""
+
+    def test_an_underlying_beyond_trigger_above_spot_is_discarded(self):
+        client = _client({"triggers": [
+            {"kind": KIND_UNDERLYING_BEYOND, "value": 520.0, "rationale": "up"}]})
+        plan = premortem(_long_iron_fly(), SPOT, REALIZED_VOL, client=client)
+        assert not any(t.kind == KIND_UNDERLYING_BEYOND for t in plan)
+
+    def test_an_underlying_beyond_trigger_below_spot_is_discarded(self):
+        client = _client({"triggers": [
+            {"kind": KIND_UNDERLYING_BEYOND, "value": 480.0, "rationale": "down"}]})
+        plan = premortem(_long_iron_fly(), SPOT, REALIZED_VOL, client=client)
+        assert not any(t.kind == KIND_UNDERLYING_BEYOND for t in plan)
+
+    def test_no_credit_decay_trigger_on_a_debit_structure(self):
+        """It pays a debit, so there is no credit to decay."""
+        plan = deterministic_triggers(_long_iron_fly())
+        assert not any(t.kind == KIND_CREDIT_DECAY for t in plan)
+
+    def test_the_forced_dte_exit_still_applies(self):
+        plan = deterministic_triggers(_long_iron_fly())
+        assert any(t.kind == KIND_DTE_BELOW and t.threshold == FORCED_DTE_BELOW
+                   for t in plan)
+
+    def test_a_dte_trigger_is_accepted(self):
+        client = _client({"triggers": [
+            {"kind": KIND_DTE_BELOW, "value": 10, "rationale": "theta bleeds"}]})
+        plan = premortem(_long_iron_fly(), SPOT, REALIZED_VOL, client=client)
+        assert any(t.kind == KIND_DTE_BELOW for t in plan)

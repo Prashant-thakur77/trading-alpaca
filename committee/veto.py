@@ -38,7 +38,7 @@ NEUTRAL_DELTA_THRESHOLD = 15.0
 
 _BULLISH_STRUCTURES = {"bull_put_spread", "bull_call_spread"}
 _BEARISH_STRUCTURES = {"bear_call_spread", "bear_put_spread"}
-_NEUTRAL_STRUCTURES = {"long_straddle", "iron_condor"}
+_NEUTRAL_STRUCTURES = {"long_straddle", "iron_condor", "long_iron_butterfly"}
 
 BLIND_REVIEW_MODEL = "claude-haiku-4-5"
 
@@ -49,7 +49,7 @@ analyst's reasoning or debate. Judge, from this alone, whether the trade's \
 direction (or lack of one, for a neutral structure) is a reasonable reading \
 of the given price action.
 
-CONVENTIONS. NET_CREDIT is per share: POSITIVE means premium is RECEIVED (a credit trade), NEGATIVE means premium is PAID (a long-premium DEBIT trade, such as a debit vertical or a straddle). A negative NET_CREDIT is a correctly formed debit trade, NOT a malformed credit spread. MAX_LOSS and MAX_PROFIT are total position dollars; MAX_PROFIT is `inf` when the upside is unbounded.
+CONVENTIONS. NET_CREDIT is per share: POSITIVE means premium is RECEIVED (a credit trade), NEGATIVE means premium is PAID (a long-premium DEBIT trade, such as a debit vertical, a straddle or a long iron butterfly). A negative NET_CREDIT is a correctly formed debit trade, NOT a malformed credit spread. MAX_LOSS and MAX_PROFIT are total position dollars; MAX_PROFIT is `inf` when the upside is unbounded.
 
 UNDERLYING: {underlying}
 SPOT: {spot:.2f}

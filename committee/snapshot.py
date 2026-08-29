@@ -170,6 +170,76 @@ def _drop_thin_credit(candidates: list[TradeIntent], min_ratio: float) -> list[T
     ]
 
 
+# The DEBIT structures this floor applies to — the mirror of
+# CREDIT_STRUCTURES above. Deliberately a structure-name test for the same
+# reason: keying off `intent.is_credit` would sweep in any credit-structure
+# candidate that happened to price to a net debit and judge it by a rule
+# written for a different family, which is the bug class that produced the
+# 72% abstention rate.
+#
+# `long_straddle` is deliberately ABSENT: its max_profit is unbounded, so it
+# has no width to measure a debit against and the ratio below is meaningless
+# for it. It is filtered on max_loss alone by `_drop_certain_denials`.
+DEBIT_WIDTH_STRUCTURES = {"bull_call_spread", "bear_put_spread",
+                          "long_iron_butterfly"}
+
+
+def _drop_thin_debit(candidates: list[TradeIntent], min_ratio: float) -> list[TradeIntent]:
+    """Drop DEBIT_WIDTH_STRUCTURES candidates whose risk and reward are
+    lopsided by more than `min_ratio` in EITHER direction.
+
+    This is the debit-side mirror of `_drop_thin_credit`, and it deliberately
+    reuses that function's constant rather than introducing a second one.
+    The credit rule says: REWARD (the credit collected) must be at least
+    `MIN_CREDIT_TO_RISK` of RISK. A debit vertical is the mirror image of the
+    credit vertical struck at the same two strikes — the debit paid is the
+    risk and the width less that debit is the reward — so the mirror of the
+    rule is the same inequality with the two terms exchanged: RISK must be at
+    least `MIN_CREDIT_TO_RISK` of REWARD.
+
+    Measured live on SPY 2026-08-30, that is exactly the defect that needed
+    catching. `c9` was a bull_call_spread with a $0.04 debit against $496 of
+    upside (a 1:124 payoff), `c5` a bear_put_spread at $0.07. The market
+    prices those at essentially zero probability of paying off, and
+    `_structure_fill_order` ranks on max_profit/max_loss, so they scored 124:1
+    and ranked TOP of their band — actively selected, wasting a surfaced slot
+    while looking superficially like extraordinary risk/reward. They are the
+    debit-side twin of the $0.02-credit spreads `MIN_CREDIT_TO_RISK` exists
+    to remove.
+
+    Since risk + reward always sum to the full width for these structures,
+    `risk >= 0.10 * reward` is the same as `debit >= width/11` (~9.1% of
+    width) — a conventional desk floor for a vertical, arrived at from the
+    credit rule rather than picked.
+
+    WHERE THE NUMBER LIVES. It stays a module constant here — in fact the
+    same one — rather than moving to risk.yaml, for the reason
+    `MIN_CREDIT_TO_RISK` does: risk.yaml is the source of truth for limits
+    RiskGuard ENFORCES, and the guard never reads this. It is a question
+    about which candidates deserve one of the committee's twelve slots, not
+    about what may be sent to a broker; a number in risk.yaml that no guard
+    evaluates would read as a limit and be neither.
+
+    The SAME ratio is then applied the other way (`reward >= 0.10 * risk`,
+    i.e. debit <= 10/11 of width). No second constant: a debit vertical at
+    91% of width risks $4.55 to make $0.45, which is the identical 10:1
+    -against reward/risk the blind reviewer called "indefensible" on the
+    credit side, reached from the opposite end. It also removes the
+    degenerate `debit >= width` case, which cannot profit at any settlement
+    price. This direction rarely binds on a real chain — it is not there to
+    trim the menu, it is there so the rule is honestly symmetric.
+    """
+    kept = []
+    for c in candidates:
+        if c.structure not in DEBIT_WIDTH_STRUCTURES:
+            kept.append(c)
+            continue
+        risk, reward = c.max_loss, c.max_profit
+        if risk >= min_ratio * reward and reward >= min_ratio * risk:
+            kept.append(c)
+    return kept
+
+
 def _breakeven_cushion(intent: TradeIntent, spot: float) -> float:
     """Distance from spot to the NEAREST breakeven, as a fraction of spot.
 
@@ -370,7 +440,7 @@ NET_CREDIT_CONVENTION = (
     "is RECEIVED (a short-premium/credit trade: bull_put_spread, "
     "bear_call_spread, iron_condor). NEGATIVE means premium is PAID (a "
     "long-premium/debit trade: bull_call_spread, bear_put_spread, "
-    "long_straddle) — a negative net_credit is a correctly formed debit "
+    "long_iron_butterfly, long_straddle) — a negative net_credit is a correctly formed debit "
     "trade, not a malformed credit spread. For a credit trade max_profit is "
     "the premium received; for a debit trade max_loss is the premium paid."
 )
@@ -515,9 +585,15 @@ def render_snapshot(
     iron_condor) whose net credit is a negligible fraction of its max loss is
     dropped (`_drop_thin_credit`, floor `MIN_CREDIT_TO_RISK`) — see that
     constant's docstring for the measured live case (a 249:1 risk/reward
-    spread the blind reviewer had to catch by hand) that motivates it. DEBIT
-    candidates (long_straddle, bull_call_spread, bear_put_spread) are
-    untouched by this filter.
+    spread the blind reviewer had to catch by hand) that motivates it.
+
+    Then the mirror of that rule for DEBIT structures with a finite width
+    (bull_call_spread, bear_put_spread, long_iron_butterfly): the debit paid
+    must be at least `MIN_CREDIT_TO_RISK` of the reward and no more than the
+    reciprocal of it (`_drop_thin_debit`) — one constant, risk and reward
+    exchanged, removing both the $0.04-debit lottery ticket and the
+    near-full-width spread that cannot pay for itself. `long_straddle` has no
+    width (unbounded max_profit) and is filtered on max_loss alone.
 
     The surviving candidates are sorted by a canonical key (structure, dte,
     strikes, net credit, contracts) before ids c1..cN are assigned. The list
@@ -549,6 +625,7 @@ def render_snapshot(
         max_loss_cap = _default_max_loss_cap()
     eligible = _drop_certain_denials(candidates, max_loss_cap)
     eligible = _drop_thin_credit(eligible, MIN_CREDIT_TO_RISK)
+    eligible = _drop_thin_debit(eligible, MIN_CREDIT_TO_RISK)
     ordered = sorted(eligible, key=_candidate_sort_key)
     total = len(ordered)
     capped = _stratified_cap(ordered, max_candidates, spot)

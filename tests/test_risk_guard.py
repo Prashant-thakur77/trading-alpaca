@@ -71,6 +71,7 @@ class TestConfigLoading:
         assert set(cfg.allowed_structures) >= {
             "bull_put_spread", "bear_call_spread", "iron_condor",
             "long_straddle", "bull_call_spread", "bear_put_spread",
+            "long_iron_butterfly",
         }
 
     def test_missing_file_raises_rather_than_defaulting(self):

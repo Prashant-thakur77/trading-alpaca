@@ -20,6 +20,7 @@ from candidate_builder import (
     build_bull_call_spread,
     build_bear_put_spread,
     build_iron_condor,
+    build_long_iron_butterfly,
     build_long_straddle,
     passes_liquidity,
 )
@@ -404,6 +405,9 @@ class TestTradeIntentContract:
                 short_call=_q(455, "c", 3.0, 3.1), long_call=_q(460, "c", 2.0, 2.1)),
             build_bull_call_spread(_q(450, "c", 5.0, 5.1), _q(455, "c", 3.0, 3.1)),
             build_bear_put_spread(_q(450, "p", 5.0, 5.1), _q(445, "p", 3.0, 3.1)),
+            build_long_iron_butterfly(
+                long_call=_q(450, "c", 5.00, 5.10), long_put=_q(450, "p", 4.00, 4.10),
+                short_call=_q(455, "c", 4.00, 4.10), short_put=_q(445, "p", 3.00, 3.10)),
         ):
             shorts = [l for l in intent.legs if l.side == "sell"]
             longs = [l for l in intent.legs if l.side == "buy"]
@@ -418,3 +422,157 @@ class TestTradeIntentContract:
         intent = build_bull_put_spread(_q(445, "p", 3.0, 3.1), _q(440, "p", 2.0, 2.1))
         with pytest.raises(Exception):
             intent.max_loss = 0.0  # type: ignore
+
+
+class TestLongIronButterfly:
+    """Long the ATM straddle, short both wings. DEBIT, defined risk, NEUTRAL.
+
+    Also known as a reverse iron butterfly. It is the long-premium mirror of
+    the (credit) iron butterfly: the body straddle is BOUGHT and the wings
+    are SOLD, so premium is paid, not collected.
+
+    This is the structure the desk was missing. "IV below realized -> buy
+    premium" is a view about VOLATILITY, and every other long-premium
+    structure the builder can produce is either directional (the two debit
+    verticals) or priced far above risk.yaml's $1,000 max_loss_per_position
+    (the long straddle, $2,270-$2,639 on a live SPY chain). Selling the wings
+    against the straddle cuts the premium paid to a few hundred dollars while
+    keeping the position direction-neutral.
+
+    Fixture: body 450, wings +/-5 (width 5).
+      long  450c mid 5.05 + long  450p mid 4.05 = 9.10 paid
+      short 455c mid 4.05 + short 445p mid 3.05 = 7.10 received
+      net debit 2.00
+    """
+
+    def _fly(self, contracts: int = 1) -> TradeIntent:
+        return build_long_iron_butterfly(
+            long_call=_q(450, "c", 5.00, 5.10),
+            long_put=_q(450, "p", 4.00, 4.10),
+            short_call=_q(455, "c", 4.00, 4.10),
+            short_put=_q(445, "p", 3.00, 3.10),
+            contracts=contracts,
+        )
+
+    def test_builds_four_legs(self):
+        assert len(self._fly().legs) == 4
+
+    def test_structure_is_named_for_what_it_is(self):
+        assert self._fly().structure == "long_iron_butterfly"
+
+    def test_body_is_bought_and_wings_are_sold(self):
+        legs = {(l.quote.strike, l.quote.right): l.side for l in self._fly().legs}
+        assert legs[(450.0, "c")] == "buy"
+        assert legs[(450.0, "p")] == "buy"
+        assert legs[(455.0, "c")] == "sell"
+        assert legs[(445.0, "p")] == "sell"
+
+    def test_is_a_net_debit(self):
+        """Debit is a NEGATIVE credit, matching build_long_straddle."""
+        assert self._fly().net_credit == pytest.approx(-2.00)
+
+    def test_is_not_a_credit_trade(self):
+        assert self._fly().is_credit is False
+
+    def test_max_loss_is_the_debit_paid(self):
+        """Worst case is the underlying pinning the body: every option
+        expires worthless and the whole premium is lost."""
+        assert self._fly().max_loss == pytest.approx(200.0)
+
+    def test_max_profit_is_width_minus_debit(self):
+        assert self._fly().max_profit == pytest.approx(300.0)
+
+    def test_payoff_terms_sum_to_the_full_width(self):
+        fly = self._fly()
+        assert fly.max_loss + fly.max_profit == pytest.approx(5.0 * 100)
+
+    def test_has_two_breakevens_at_body_plus_minus_debit(self):
+        assert self._fly().breakevens == pytest.approx([448.0, 452.0])
+
+    def test_breakevens_straddle_the_body_inside_the_wings(self):
+        lo, hi = self._fly().breakevens
+        assert 445.0 < lo < 450.0 < hi < 455.0
+
+    def test_scales_with_contracts(self):
+        fly = self._fly(contracts=3)
+        assert fly.max_loss == pytest.approx(600.0)
+        assert fly.max_profit == pytest.approx(900.0)
+        assert all(l.contracts == 3 for l in fly.legs)
+
+    def test_is_defined_risk(self):
+        assert self._fly().is_defined_risk is True
+
+    def test_max_loss_is_finite(self):
+        assert self._fly().max_loss < float("inf")
+
+    def test_every_short_leg_is_covered_by_a_long_of_the_same_right(self):
+        """Hard rule 3. The short 455c is covered by the long 450c and the
+        short 445p by the long 450p — there is no naked leg."""
+        fly = self._fly()
+        longs = [l for l in fly.legs if l.side == "buy"]
+        for short in [l for l in fly.legs if l.side == "sell"]:
+            assert any(l.quote.right == short.quote.right for l in longs)
+
+    def test_rejects_a_body_whose_legs_differ_in_strike(self):
+        with pytest.raises(ValueError):
+            build_long_iron_butterfly(
+                long_call=_q(450, "c", 5.00, 5.10), long_put=_q(449, "p", 4.00, 4.10),
+                short_call=_q(455, "c", 4.00, 4.10), short_put=_q(445, "p", 3.00, 3.10))
+
+    def test_rejects_asymmetric_wings(self):
+        """Asymmetric wings make `width` ambiguous — max profit would differ
+        by side — so they are refused rather than silently mispriced."""
+        with pytest.raises(ValueError):
+            build_long_iron_butterfly(
+                long_call=_q(450, "c", 5.00, 5.10), long_put=_q(450, "p", 4.00, 4.10),
+                short_call=_q(460, "c", 2.00, 2.10), short_put=_q(445, "p", 3.00, 3.10))
+
+    def test_rejects_a_call_wing_below_the_body(self):
+        with pytest.raises(ValueError):
+            build_long_iron_butterfly(
+                long_call=_q(450, "c", 5.00, 5.10), long_put=_q(450, "p", 4.00, 4.10),
+                short_call=_q(445, "c", 6.00, 6.10), short_put=_q(455, "p", 6.00, 6.10))
+
+    def test_rejects_wrong_rights(self):
+        with pytest.raises(ValueError):
+            build_long_iron_butterfly(
+                long_call=_q(450, "p", 5.00, 5.10), long_put=_q(450, "p", 4.00, 4.10),
+                short_call=_q(455, "c", 4.00, 4.10), short_put=_q(445, "p", 3.00, 3.10))
+
+    def test_rejects_mismatched_expiries(self):
+        other = date.today() + timedelta(days=45)
+        odd = OptionQuote(symbol="SPYX", underlying="SPY", strike=455.0,
+                          expiry=other, right="c", bid=4.00, ask=4.10,
+                          open_interest=500)
+        with pytest.raises(ValueError):
+            build_long_iron_butterfly(
+                long_call=_q(450, "c", 5.00, 5.10), long_put=_q(450, "p", 4.00, 4.10),
+                short_call=odd, short_put=_q(445, "p", 3.00, 3.10))
+
+    def test_returns_none_when_a_leg_fails_the_liquidity_gate(self):
+        """Fail closed: an illiquid leg produces no candidate, never a
+        marginal one."""
+        assert build_long_iron_butterfly(
+            long_call=_q(450, "c", 5.00, 5.10),
+            long_put=_q(450, "p", 4.00, 4.10),
+            short_call=_q(455, "c", 4.00, 4.10, oi=3),
+            short_put=_q(445, "p", 3.00, 3.10)) is None
+
+    def test_is_delta_neutral_by_construction(self):
+        """The long body straddle's delta is near zero and the two sold wings
+        offset each other, so the whole structure carries almost no direction
+        — which is why `committee/veto.thesis_check` must judge it against the
+        NEUTRAL band, not a directional one."""
+        import analytics
+        measured = analytics.position_greeks(self._fly(), spot=450.0)
+        assert measured is not None
+        net_delta, _net_vega = measured
+        assert abs(net_delta) < 15.0
+
+    def test_is_long_volatility(self):
+        """Long the body straddle, short the wings: net long vega."""
+        import analytics
+        measured = analytics.position_greeks(self._fly(), spot=450.0)
+        assert measured is not None
+        _net_delta, net_vega = measured
+        assert net_vega > 0

@@ -13,6 +13,7 @@ Only defined-risk structures are constructible (hard rule 3):
   - long straddle            (long volatility, LONG premium)
   - bull call debit spread   (bullish, LONG premium)
   - bear put debit spread    (bearish, LONG premium)
+  - long iron butterfly      (long volatility, NEUTRAL, LONG premium)
 There is no code path that produces a naked short option.
 
 The two debit verticals exist because the long-premium half of the menu was
@@ -370,4 +371,106 @@ def build_long_straddle(
         max_profit=float("inf"),
         breakevens=(call.strike - debit, call.strike + debit),
         dte=call.dte,
+    )
+
+
+def build_long_iron_butterfly(
+    long_call: OptionQuote,
+    long_put: OptionQuote,
+    short_call: OptionQuote,
+    short_put: OptionQuote,
+    contracts: int = 1,
+) -> TradeIntent | None:
+    """Buy the ATM straddle, sell both wings. LONG premium, direction-NEUTRAL.
+
+    Also called a reverse iron butterfly. It is the long-premium mirror of
+    the credit iron butterfly, and equivalently a long call vertical
+    (body -> call wing) plus a long put vertical (body -> put wing) sharing
+    the body strike.
+
+    WHY IT EXISTS. "Implied vol sits below realized, so buy premium" is a
+    view about VOLATILITY, not about direction. Measured over the seeded
+    June-July replay, the committee reached exactly that view repeatedly and
+    then abstained anyway, in its own words: "vol_analyst cites both bullish
+    (c7-c9) and bearish (c4-c6) debit spreads as equally favored by the vol
+    regime ... With no two-model agreement on direction, ABSTAIN is the
+    correct call." Both debit verticals are directional, so the two-reviewer
+    directional-agreement rule could never be satisfied by a view that names
+    no direction. The only non-directional long-premium structure the builder
+    had was `long_straddle`, whose max_loss ($2,270-$2,639 on a live SPY
+    chain) exceeds risk.yaml's $1,000 max_loss_per_position and is therefore
+    dropped from every window before the committee sees it.
+
+    Selling the two wings against that straddle is what makes the same view
+    affordable: the premium received cuts the debit paid (and the max loss
+    with it) to a few hundred dollars, at the cost of capping the upside at
+    the wing width. Direction-neutral, defined risk, under the cap.
+
+    PAYOFF (wings symmetric at +/- `width` from the body):
+      max loss    = the net debit paid, realised when the underlying pins the
+                    body and every leg expires worthless
+      max profit  = (width - net debit), first reached AT either wing strike
+                    and flat beyond it
+      breakevens  = body +/- net debit
+      the two always sum to the full width, exactly as they do for a vertical
+
+    NO NAKED LEG: the short call wing sits above the long body call and the
+    short put wing below the long body put, so each short is covered by a
+    long of the same right (hard rule 3).
+
+    Asymmetric wings are refused rather than priced: with unequal widths the
+    max profit differs by side, so a single `width` would silently misstate
+    one of them.
+    """
+    if long_call.right != "c" or short_call.right != "c":
+        raise ValueError("long iron butterfly call legs must both be calls")
+    if long_put.right != "p" or short_put.right != "p":
+        raise ValueError("long iron butterfly put legs must both be puts")
+    if long_call.strike != long_put.strike:
+        raise ValueError(
+            f"long iron butterfly body must be one strike "
+            f"(got call={long_call.strike}, put={long_put.strike})"
+        )
+    body = long_call.strike
+    if short_call.strike <= body:
+        raise ValueError(
+            f"call wing {short_call.strike} must sit above the body {body}")
+    if short_put.strike >= body:
+        raise ValueError(
+            f"put wing {short_put.strike} must sit below the body {body}")
+    call_width = short_call.strike - body
+    put_width = body - short_put.strike
+    if call_width != put_width:
+        raise ValueError(
+            f"long iron butterfly wings must be symmetric "
+            f"(call wing {call_width}, put wing {put_width})"
+        )
+    if len({long_call.expiry, long_put.expiry,
+            short_call.expiry, short_put.expiry}) != 1:
+        raise ValueError("long iron butterfly legs must share an expiry")
+
+    if not _gate(long_call, long_put, short_call, short_put):
+        return None
+
+    debit = (long_call.mid - short_call.mid) + (long_put.mid - short_put.mid)
+    width = call_width
+
+    # A debit at or above the width can never profit. That is a market
+    # condition, not a programming error, so it is built honestly and dropped
+    # downstream by committee.snapshot._drop_thin_debit rather than hidden
+    # here — the same treatment credit structures get when they price to a
+    # negligible or negative credit.
+    return TradeIntent(
+        underlying=long_call.underlying,
+        structure="long_iron_butterfly",
+        legs=(
+            Leg(long_call, "buy", contracts), Leg(long_put, "buy", contracts),
+            Leg(short_call, "sell", contracts), Leg(short_put, "sell", contracts),
+        ),
+        contracts=contracts,
+        net_credit=-debit,
+        max_loss=debit * CONTRACT_MULTIPLIER * contracts,
+        max_profit=(width - debit) * CONTRACT_MULTIPLIER * contracts,
+        breakevens=(body - debit, body + debit),
+        dte=long_call.dte,
     )

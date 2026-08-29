@@ -53,6 +53,7 @@ from candidate_builder import (  # noqa: E402
     build_bull_call_spread,
     build_bull_put_spread,
     build_iron_condor,
+    build_long_iron_butterfly,
     build_long_straddle,
 )
 from committee.analysts import AnalystView, aggregate  # noqa: E402
@@ -253,6 +254,13 @@ def rebuild_intent(candidate: dict, underlying: str, contracts: int, as_of: date
         if structure == "long_straddle":
             (call,), (put,) = by(right="c"), by(right="p")
             return build_long_straddle(q(call), q(put), contracts=contracts)
+        if structure == "long_iron_butterfly":
+            (long_call,), (long_put,) = by("buy", "c"), by("buy", "p")
+            (short_call,), (short_put,) = by("sell", "c"), by("sell", "p")
+            return build_long_iron_butterfly(
+                long_call=q(long_call), long_put=q(long_put),
+                short_call=q(short_call), short_put=q(short_put),
+                contracts=contracts)
         if structure == "iron_condor":
             (short_put,), (long_put,) = by("sell", "p"), by("buy", "p")
             (short_call,), (long_call,) = by("sell", "c"), by("buy", "c")

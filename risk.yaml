@@ -58,6 +58,13 @@ structures:
     - long_straddle
     - bull_call_spread
     - bear_put_spread
+    # The long iron butterfly is the only long-premium structure that is
+    # also direction-NEUTRAL and under max_loss_per_position: the debit
+    # verticals are directional (so a pure volatility view can never satisfy
+    # the two-reviewer directional-agreement rule) and the long straddle is
+    # priced far above the cap. Long the body straddle, short both wings —
+    # every short is covered, so it is defined risk like the rest.
+    - long_iron_butterfly
 
 kill_switch:
   # Either trips a halt: the file existing, or the env var being set to 1.

@@ -50,6 +50,33 @@ def test_chain_yields_long_premium_debit_verticals():
     assert "bear_put_spread" in structures
 
 
+def test_chain_yields_a_non_directional_long_premium_structure():
+    """The gap the debit verticals did NOT close: "IV below realized -> buy
+    premium" is a view about VOLATILITY, and both debit verticals are
+    DIRECTIONAL, so the two-model directional-agreement rule can never be
+    satisfied by it. Measured over 10 seeded June-July windows, 7 of 8
+    abstentions cited exactly that. The long_iron_butterfly is long premium
+    AND direction-neutral AND priced under the cap."""
+    structures = {i.structure for i in build_candidates(_chain(), "SPY", spot=450.0)}
+    assert "long_iron_butterfly" in structures
+
+
+def test_long_iron_butterfly_is_a_defined_risk_debit_with_symmetric_wings():
+    for intent in build_candidates(_chain(), "SPY", spot=450.0):
+        if intent.structure != "long_iron_butterfly":
+            continue
+        assert intent.net_credit <= 0
+        assert intent.is_credit is False
+        assert intent.is_defined_risk
+        assert intent.max_loss < float("inf")
+        bought = sorted(l.quote.strike for l in intent.legs if l.side == "buy")
+        sold = sorted(l.quote.strike for l in intent.legs if l.side == "sell")
+        assert bought[0] == bought[1]                      # one body strike
+        body = bought[0]
+        assert sold[0] < body < sold[1]                    # wings straddle it
+        assert body - sold[0] == sold[1] - body            # symmetric
+
+
 def test_debit_verticals_are_priced_as_debits_and_defined_risk():
     for intent in build_candidates(_chain(), "SPY", spot=450.0):
         if intent.structure in ("bull_call_spread", "bear_put_spread"):

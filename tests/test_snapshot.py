@@ -8,11 +8,13 @@ import os
 import sys
 from datetime import date, timedelta
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from candidate_builder import (
     OptionQuote, build_bull_put_spread, build_bear_call_spread, build_long_straddle,
-    build_bull_call_spread, build_bear_put_spread,
+    build_bull_call_spread, build_bear_put_spread, build_long_iron_butterfly,
 )
 from committee.snapshot import Snapshot, render_snapshot
 
@@ -846,3 +848,197 @@ def test_the_convention_line_does_not_break_determinism():
     random.Random(11).shuffle(shuffled)
     b = render_snapshot("SPY", 500.0, 0.18, shuffled, max_loss_cap=1000.0)
     assert a.text == b.text
+
+
+# ---- the DEBIT-side quality floor: the mirror of MIN_CREDIT_TO_RISK ----
+#
+# `_drop_thin_credit` removes a credit structure whose REWARD is a negligible
+# fraction of its RISK. A debit structure has the same defect with the two
+# terms exchanged: a $0.04 debit on a 5-wide spread is $4 of risk against
+# $496 of reward — a 124:1 payoff the market is pricing at essentially zero
+# probability — and `_structure_fill_order` ranks on max_profit/max_loss, so
+# these rank TOP of their band and are actively selected. Measured live on
+# SPY 2026-08-30: c9 bull_call_spread debit $0.04, c5 bear_put_spread $0.07.
+
+
+def _bull_call_with_debit(debit, width=5.0, long_strike=500.0):
+    """A bull_call_spread paying exactly `debit` per share on `width`."""
+    short_mid = 2.00
+    long_mid = short_mid + debit
+    intent = build_bull_call_spread(
+        _q(long_strike, "c", long_mid - 0.05, long_mid + 0.05),
+        _q(long_strike + width, "c", short_mid - 0.05, short_mid + 0.05),
+    )
+    assert intent is not None
+    return intent
+
+
+def _bear_put_with_debit(debit, width=5.0, long_strike=500.0):
+    short_mid = 2.00
+    long_mid = short_mid + debit
+    intent = build_bear_put_spread(
+        _q(long_strike, "p", long_mid - 0.05, long_mid + 0.05),
+        _q(long_strike - width, "p", short_mid - 0.05, short_mid + 0.05),
+    )
+    assert intent is not None
+    return intent
+
+
+def _long_iron_fly(body=500.0, width=5.0, debit=2.0):
+    """A long_iron_butterfly paying exactly `debit` per share on `width`.
+
+    The whole debit is carried on the call side so the arithmetic under test
+    is the sum, not the split.
+    """
+    intent = build_long_iron_butterfly(
+        long_call=_q(body, "c", 2.00 + debit - 0.05, 2.00 + debit + 0.05),
+        long_put=_q(body, "p", 1.95, 2.05),
+        short_call=_q(body + width, "c", 1.95, 2.05),
+        short_put=_q(body - width, "p", 1.95, 2.05),
+    )
+    assert intent is not None
+    return intent
+
+
+def _many_long_iron_flies(n, body=500.0):
+    return [_long_iron_fly(body=body + i) for i in range(n)]
+
+
+def test_a_lottery_ticket_debit_vertical_is_dropped():
+    """The measured live defect: c9, a bull_call_spread with a $0.04 debit
+    against $496 of upside. It is the exact mirror of the $0.02-credit spread
+    `MIN_CREDIT_TO_RISK` was introduced to remove."""
+    lottery = _bull_call_with_debit(0.04)
+    assert lottery.max_loss == pytest.approx(4.0)
+    assert lottery.max_profit == pytest.approx(496.0)
+    s = render_snapshot("SPY", 500.0, 0.18, [lottery, _bull_put(495, 490)],
+                        max_loss_cap=1000.0)
+    assert lottery not in s.candidates.values()
+
+
+def test_a_lottery_ticket_bear_put_spread_is_dropped_too():
+    lottery = _bear_put_with_debit(0.07)
+    s = render_snapshot("SPY", 500.0, 0.18, [lottery, _bull_put(495, 490)],
+                        max_loss_cap=1000.0)
+    assert lottery not in s.candidates.values()
+
+
+def test_a_debit_vertical_paying_a_real_fraction_of_width_survives():
+    real = _bull_call_with_debit(1.00)   # 20% of width; 4:1 reward-to-risk
+    s = render_snapshot("SPY", 500.0, 0.18, [real], max_loss_cap=1000.0)
+    assert real in s.candidates.values()
+
+
+def test_a_debit_vertical_priced_at_nearly_the_full_width_is_dropped():
+    """The other direction: paying $4.70 for a $5-wide spread risks $470 to
+    make $30 — the same 10:1-against reward/risk the blind reviewer called
+    indefensible on the credit side, arrived at from the opposite end."""
+    lopsided = _bull_call_with_debit(4.70)
+    assert lopsided.max_profit == pytest.approx(30.0)
+    s = render_snapshot("SPY", 500.0, 0.18, [lopsided, _bull_put(495, 490)],
+                        max_loss_cap=1000.0)
+    assert lopsided not in s.candidates.values()
+
+
+def test_the_debit_floor_uses_the_same_ratio_as_the_credit_floor():
+    """One constant, applied with risk and reward exchanged — not a second
+    number invented for symmetry's sake. `MIN_CREDIT_TO_RISK` says reward
+    must be at least 10% of risk; the debit rule says risk must be at least
+    10% of reward, which on a width-`w` spread puts the floor at w/11."""
+    from committee.snapshot import MIN_CREDIT_TO_RISK
+    floor = 5.0 * MIN_CREDIT_TO_RISK / (1 + MIN_CREDIT_TO_RISK)   # 0.4545...
+    below = _bull_call_with_debit(round(floor - 0.02, 2))
+    above = _bull_call_with_debit(round(floor + 0.02, 2))
+    s = render_snapshot("SPY", 500.0, 0.18, [below, above], max_loss_cap=1000.0)
+    assert below not in s.candidates.values()
+    assert above in s.candidates.values()
+
+
+def test_long_straddle_is_not_dropped_by_the_debit_floor():
+    """A straddle's max_profit is unbounded, so it has no width to measure a
+    debit against. Applying a width ratio to it would erase the structure
+    entirely — the same class of bug as applying a credit ratio to a debit."""
+    straddle = _straddle(500)
+    s = render_snapshot("SPY", 500.0, 0.18, [straddle], max_loss_cap=10000.0)
+    assert straddle in s.candidates.values()
+
+
+def test_credit_structures_are_untouched_by_the_debit_floor():
+    """A healthy credit spread has a small max_loss relative to nothing on
+    the debit side; the debit rule must never see it."""
+    healthy = _credit_spread_with_ratio(500.0, credit=2.0, width=5.0)
+    s = render_snapshot("SPY", 500.0, 0.18, [healthy], max_loss_cap=1000.0)
+    assert healthy in s.candidates.values()
+
+
+# ---- the non-directional long-premium structure ----
+
+def test_long_iron_butterfly_is_surfaced():
+    fly = _long_iron_fly(debit=2.0)
+    s = render_snapshot("SPY", 500.0, 0.18, [fly], max_loss_cap=1000.0)
+    assert fly in s.candidates.values()
+    assert "long_iron_butterfly" in s.text
+
+
+def test_long_iron_butterfly_clears_the_cap_a_straddle_cannot():
+    """The whole point: the same long-vol, direction-neutral view, priced
+    under risk.yaml's max_loss_per_position."""
+    straddle = _straddle(500)
+    fly = _long_iron_fly(debit=2.0)
+    assert fly.max_loss < straddle.max_loss
+    s = render_snapshot("SPY", 500.0, 0.18, [straddle, fly], max_loss_cap=300.0)
+    assert straddle not in s.candidates.values()
+    assert fly in s.candidates.values()
+
+
+def test_long_iron_butterfly_is_not_dropped_by_the_credit_floor():
+    fly = _long_iron_fly(debit=2.0)
+    assert fly.net_credit < 0 and not fly.is_credit
+    s = render_snapshot("SPY", 500.0, 0.18, [fly], max_loss_cap=1000.0)
+    assert fly in s.candidates.values()
+
+
+def test_a_long_iron_butterfly_that_cannot_profit_is_dropped():
+    """Debit at or above the width: max_profit <= 0, so the trade cannot make
+    money at any settlement price. The builder prices it honestly; this
+    filter is what removes it."""
+    dead = _long_iron_fly(debit=5.0)
+    assert dead.max_profit <= 0
+    s = render_snapshot("SPY", 500.0, 0.18, [dead, _bull_put(495, 490)],
+                        max_loss_cap=1000.0)
+    assert dead not in s.candidates.values()
+
+
+def test_credit_structures_do_not_crowd_out_the_long_iron_butterfly():
+    candidates = (_many_bull_puts(20) + _many_bear_calls(20)
+                  + _many_long_iron_flies(3))
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=12,
+                        max_loss_cap=1000.0)
+    assert "long_iron_butterfly" in {i.structure for i in s.candidates.values()}
+
+
+def test_mixed_menu_of_all_six_structures_fits_the_cap():
+    candidates = (_many_bull_puts(6) + _many_bear_calls(6) + _many_straddles(2)
+                  + _many_bull_calls(6) + _many_bear_puts(6)
+                  + _many_long_iron_flies(6))
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=12,
+                        max_loss_cap=100000.0)
+    assert len(s.candidates) == 12
+    assert {i.structure for i in s.candidates.values()} == {
+        "bull_put_spread", "bear_call_spread", "long_straddle",
+        "bull_call_spread", "bear_put_spread", "long_iron_butterfly"}
+
+
+def test_selection_stays_deterministic_and_order_independent_with_butterflies():
+    candidates = (_many_bull_puts(8) + _many_bear_calls(8)
+                  + _many_bull_calls(5) + _many_long_iron_flies(5))
+    baseline = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=10,
+                               max_loss_cap=1000.0)
+    import random
+    for seed in (7, 11):
+        shuffled = list(candidates)
+        random.Random(seed).shuffle(shuffled)
+        other = render_snapshot("SPY", 500.0, 0.18, shuffled, max_candidates=10,
+                                max_loss_cap=1000.0)
+        assert other.text == baseline.text
+        assert list(other.candidates.values()) == list(baseline.candidates.values())

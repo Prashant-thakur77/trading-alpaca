@@ -56,7 +56,7 @@ from committee.premortem import (
 )
 from candidate_builder import (
     build_bear_call_spread, build_bear_put_spread, build_bull_call_spread,
-    build_bull_put_spread, build_long_straddle,
+    build_bull_put_spread, build_long_iron_butterfly, build_long_straddle,
 )
 from executor_options import OptionsExecutor
 from exit_monitor import OpenTrade, OpenTradeStore, monitor_positions
@@ -437,6 +437,7 @@ def _build_candidates_for_expiry(chain, spot: float, width: float) -> list:
                 candidates.append(intent)
 
     # Long straddle at the strike nearest spot, if both legs exist.
+    atm = None
     if puts:
         # Sort before min() so a tie (e.g. 445 vs 455 at spot 450) resolves
         # deterministically instead of by set iteration order — required for
@@ -447,6 +448,39 @@ def _build_candidates_for_expiry(chain, spot: float, width: float) -> list:
             intent = build_long_straddle(call, put)
             if intent:
                 candidates.append(intent)
+
+    # Long iron butterflies on the SAME body as the straddle: buy that
+    # straddle, sell a symmetric pair of wings. This is the desk's only
+    # non-directional LONG-premium structure that fits under risk.yaml's
+    # max_loss_per_position — the straddle alone costs $2,270+ on a live SPY
+    # chain and is dropped by `_drop_certain_denials` every time.
+    #
+    # The wing offset is SWEPT rather than fixed at `width`, because the
+    # structure's economics are dominated by it and the right offset is a
+    # property of the chain, not a constant: a wing one strike out barely
+    # reduces the debit (the butterfly then costs almost the full width and
+    # cannot pay for itself), while a wing a full expected-move out leaves a
+    # debit above the cap. Enumerating the ladder lets the deterministic
+    # filters keep whichever offsets actually clear both — the max-loss cap
+    # and `_drop_thin_debit` — instead of this loop guessing one. Offsets are
+    # taken in sorted order so the enumeration is order-independent.
+    if atm is not None:
+        body_call, body_put = by_strike_c.get(atm), by_strike_p.get(atm)
+        if body_call and body_put:
+            offsets = sorted(
+                {round(s - atm, 4) for s in by_strike_c if s > atm}
+                & {round(atm - s, 4) for s in by_strike_p if s < atm}
+            )
+            for offset in offsets:
+                wing_call = by_strike_c.get(round(atm + offset, 4))
+                wing_put = by_strike_p.get(round(atm - offset, 4))
+                if not (wing_call and wing_put):
+                    continue
+                intent = build_long_iron_butterfly(
+                    long_call=body_call, long_put=body_put,
+                    short_call=wing_call, short_put=wing_put)
+                if intent:
+                    candidates.append(intent)
 
     return candidates
 
