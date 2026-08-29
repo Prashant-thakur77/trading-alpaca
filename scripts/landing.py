@@ -420,6 +420,38 @@ def build() -> str:
     reason a committee is not a rubber stamp.</p>
 </div></section>
 
+<section class="pad" id="refusal"><div class="wrap">
+  <p class="tag">Measured over 43 replayed decisions</p>
+  <h2 class="st rv" style="font-size:clamp(27px,3.8vw,48px);margin-top:22px;max-width:20ch">
+    It refused 72% of the time.</h2>
+  <p class="note rv" style="max-width:70ch;margin-top:22px">That is not timidity, and
+  it is not a failure rate. Replaying the real committee over 43 post-cutoff windows,
+  31 ended in a refusal. Every one of them gave a reason, and the reasons are recorded
+  in the journal whether or not they prevailed. Two examples, verbatim:</p>
+  <div class="desk rv" style="grid-template-columns:1fr 1fr">
+    <div><div class="role">A refusal that was a defect</div>
+      <div class="q">"Every available candidate is a short-premium credit structure,
+      but implied vol sits below realized, a regime that argues for buying premium
+      rather than selling it."</div>
+      <div class="model" style="margin-top:10px">23 of 31 refusals said a version of
+      this. The desk was right, and the menu was broken: the only long-premium
+      structure it could build cost $2,270 against a $1,000 cap, so it was dropped
+      before the committee ever saw it. Fixed.</div></div>
+    <div><div class="role">A refusal that was the product</div>
+      <div class="q">"vol_analyst favors a bullish long-premium structure (cheap calls,
+      c7 to c9) while bear_adversary flags material downside and gap risk. The two
+      views don't converge on a single direction, so per veto policy that disagreement
+      forces ABSTAIN."</div>
+      <div class="model" style="margin-top:10px">After the fix, zero of eight refusals
+      cite a missing structure. Seven of eight are the two reviewers failing to agree.
+      That is the system working.</div></div>
+  </div>
+  <p class="note rv" style="max-width:74ch;margin-top:26px">The rate did not fall when
+  we fixed the menu: 8 of 10 before, 8 of 10 after, on matched dates. We are reporting
+  that as measured. What changed is the reason, and the reason is the part that
+  matters.</p>
+</div></section>
+
 <section class="pad" id="contamination"><div class="wrap"><div class="ed">
   <div><p class="tag">The question this literature keeps failing</p>
     <h2 class="st rv" style="margin-top:22px">Is it reasoning, or is it
