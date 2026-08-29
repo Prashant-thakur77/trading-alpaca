@@ -30,6 +30,7 @@ from committee.decide import ABSTAIN, CommitteeDecision, decide
 from committee.snapshot import render_snapshot
 from committee.trader import TRADER_MODEL
 from committee.veto import BLIND_REVIEW_MODEL
+from calibration import DEFAULT_MIN_PREDICTIONS, WEIGHT_FLOOR
 from journal import Journal
 from llm.cache import PromptCache
 from llm.client import LLMResponse, prompt_hash
@@ -547,4 +548,84 @@ class TestPromptCache:
 
     def test_decide_works_with_no_cache_at_all(self, jrnl):
         d = _run(jrnl, cache=None)
+        assert d.chosen is not None
+
+
+# ── calibration weights are actually in the live decision ────
+#
+# `calibration.analyst_weights` existed, was tested, and was called by
+# nothing: `decide()` ran `aggregate(views)` unweighted, so the self-grading
+# loop could never influence a vote no matter how many outcomes resolved.
+# These tests hold the wiring in place AND pin the regression contract that
+# matters today: with everything unproven, every weight is 1.0 and live
+# behaviour is byte-identical to the unweighted aggregate.
+
+class TestCalibrationWeightsAreWired:
+    def test_todays_aggregate_is_unchanged_because_everything_is_unproven(
+            self, jrnl):
+        """Nothing has 10 resolved predictions yet, so every weight is 1.0 and
+        the aggregate must equal the plain unweighted mean."""
+        from committee.analysts import aggregate
+
+        d = _run(jrnl)
+        assert d.aggregate_probability == pytest.approx(
+            aggregate(list(d.views))), (
+            "wiring weights in must not move a single live decision today")
+
+    def test_the_weights_used_are_journalled(self, jrnl):
+        _run(jrnl)
+        payload = _payloads(jrnl, "trader_choice")[0]
+        assert "analyst_weights" in payload, (
+            "a judge must be able to see which weights applied to which decision")
+        assert payload["analyst_weights"] == {"vol_analyst": 1.0,
+                                              "bear_adversary": 1.0}
+
+    def test_a_resolved_history_changes_the_weight_that_is_applied(self, jrnl):
+        """The loop genuinely closes: once an analyst has a resolved track
+        record, its weight moves off 1.0 and the journal records it."""
+        for i in range(DEFAULT_MIN_PREDICTIONS):
+            snap = f"snap-{i}"
+            jrnl.append("analyst_view", {
+                "role": "vol_analyst", "probability": 0.9, "abstained": False,
+                "snapshot_hash": snap})
+            jrnl.append("close", {"snapshot_hash": snap, "realized_pnl": 250.0,
+                                  "underlying": "SPY",
+                                  "structure": "bull_put_spread"})
+        _run(jrnl)
+        weights = _payloads(jrnl, "trader_choice")[0]["analyst_weights"]
+        assert weights["vol_analyst"] > 1.0, (
+            "an analyst that called ten winners must gain influence")
+        assert weights["bear_adversary"] == 1.0, "still unproven, so untouched"
+
+    def test_a_demoted_analyst_pulls_the_aggregate_toward_the_other_view(
+            self, jrnl):
+        """A confidently wrong analyst still speaks, but votes less."""
+        for i in range(DEFAULT_MIN_PREDICTIONS):
+            snap = f"snap-{i}"
+            jrnl.append("analyst_view", {
+                "role": "vol_analyst", "probability": 0.95, "abstained": False,
+                "snapshot_hash": snap})
+            jrnl.append("close", {"snapshot_hash": snap, "realized_pnl": -250.0,
+                                  "underlying": "SPY",
+                                  "structure": "bull_put_spread"})
+        weighted = _run(jrnl)
+        weights = _payloads(jrnl, "trader_choice")[0]["analyst_weights"]
+        assert weights["vol_analyst"] < 1.0
+        assert weights["vol_analyst"] >= WEIGHT_FLOOR, "never silenced entirely"
+        assert weighted.aggregate_probability is not None
+
+    def test_an_unreadable_journal_does_not_break_the_cycle(self):
+        """Calibration is an input to a vote, not a precondition for one: a
+        journal that cannot be read must degrade to equal weights, never
+        abstain the desk."""
+        from committee.analysts import aggregate
+
+        d = decide("SPY", SPOT, REALIZED_VOL, _candidates(), BoomJournal(),
+                   client=FakeClient())
+        assert d.chosen is not None
+        assert d.aggregate_probability == pytest.approx(aggregate(list(d.views)))
+
+    def test_a_dry_run_with_no_journal_still_decides(self):
+        d = decide("SPY", SPOT, REALIZED_VOL, _candidates(), None,
+                   client=FakeClient())
         assert d.chosen is not None

@@ -70,18 +70,21 @@ def render(journal, roles=ROLES, min_predictions: int = DEFAULT_MIN_PREDICTIONS)
     if total_resolved == 0:
         lines.append(
             "No resolved predictions yet; weights default to 1.0 (unproven, not "
-            "demoted). The calibration loop is BUILT but DORMANT: no writer in "
-            "this codebase yet journals a closing trade entry (exit/close) with "
-            "a realized P&L — exit monitoring has not been built (PLAN.md "
-            "Phase 3). Nothing above is influencing committee votes yet."
+            "demoted). The loop is wired — committee/decide.py recomputes these "
+            "weights every cycle and passes them to aggregate(), and "
+            "exit_monitor.py journals a `close` entry carrying realized_pnl and "
+            "the cycle's snapshot_hash when a position exits — but no trade has "
+            "closed yet, so nothing above is influencing committee votes."
         )
     else:
         lines.append(
             f"{total_resolved} resolved prediction(s) across {len(roles)} role(s), "
-            "computed fresh from the journal above. These weights are NOT "
-            "currently wired into committee/decide.py's aggregate() call — "
-            "computing and plugging them in each live cycle is follow-up work, "
-            "not yet done."
+            "computed fresh from the journal above. These weights ARE wired into "
+            "committee/decide.py's aggregate() call: they are recomputed from "
+            "the journal on every cycle and recorded in that cycle's "
+            "trader_choice entry, so a judge can see which weights applied to "
+            "which decision. A role below the minimum resolved count still "
+            "weighs exactly 1.0 — unproven is not demoted."
         )
     return "\n".join(lines)
 

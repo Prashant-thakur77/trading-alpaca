@@ -11,15 +11,21 @@ Everything here reads the journal fresh on every call — weights are never
 stored as mutable state, because the journal is the only source of truth
 (hard rule 5) and a cached weight could silently go stale.
 
-**Honesty note, read before wiring this in anywhere:** `resolved_predictions`
-correlates an `analyst_view` entry with its eventual outcome via the
-`snapshot_hash` both entries carry. Today nothing in this codebase journals a
-closing entry (`exit`/`close`/`fill`/`partial_fill`) with a realized P&L —
-there is no exit monitoring yet (PLAN.md Phase 3) — so this machinery
-legitimately finds **zero** resolved predictions against the live journal.
-That is the correct, honest answer, not a bug: it must never be papered over
-with a plausible-looking default. `analyst_weights` therefore returns 1.0
-for every role until real outcomes exist to grade.
+`resolved_predictions` correlates an `analyst_view` entry with its eventual
+outcome via the `snapshot_hash` both entries carry. `exit_monitor` supplies
+the other half of that join: when a position closes it appends a `close`
+entry carrying `realized_pnl` and the originating `snapshot_hash`, so an
+outcome can be traced back to the analyst predictions that produced it.
+
+Weights are consumed by `committee.decide`, which recomputes them from the
+journal every cycle and passes them to `committee.analysts.aggregate`.
+
+**Honesty note:** a role with fewer than `DEFAULT_MIN_PREDICTIONS` resolved
+predictions is *unproven*, not bad, and gets a weight of exactly 1.0 — so on
+a journal with few or no closed trades this machinery legitimately reports
+zero resolved predictions and changes no vote. That is the correct answer,
+not a bug, and it must never be papered over with a plausible-looking
+default.
 """
 from dataclasses import dataclass
 
@@ -91,11 +97,10 @@ def resolved_predictions(journal, role: str) -> list[tuple[float, bool]]:
       - views whose cycle never resolves (no matching closing entry, or one
         with no P&L field — e.g. an opening `fill`).
 
-    **Returns `[]` until real trades close.** No writer in this codebase yet
-    journals a closing entry with a realized P&L — exit monitoring has not
-    been built (PLAN.md Phase 3) — so on the live journal this function
-    correctly and honestly finds nothing to grade. That is not a placeholder
-    to silence; it is the accurate state of the system.
+    Returns `[]` — never a fabricated score — while nothing has closed yet.
+    `exit_monitor.monitor_positions` is the writer that resolves a cycle: it
+    appends the `close` entry carrying `realized_pnl` and the cycle's
+    `snapshot_hash`.
     """
     entries = journal.entries()
 
@@ -153,9 +158,10 @@ def analyst_weights(journal, roles, min_predictions: int = DEFAULT_MIN_PREDICTIO
       barely votes, and never loses its vote entirely, because it needs a
       path back if it improves.
 
-    On the live journal today this returns 1.0 for every role: see
-    `resolved_predictions`'s docstring for why that is the honest answer,
-    not a bug.
+    Consumed by `committee.decide._calibration_weights`, which fails soft: an
+    unreadable journal degrades to equal weights rather than abstaining the
+    desk, because calibration is an input to a vote, not a precondition
+    for one.
     """
     weights: dict[str, float] = {}
     for role in roles:

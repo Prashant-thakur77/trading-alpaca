@@ -40,6 +40,7 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
+import calibration
 from candidate_builder import TradeIntent
 from committee.analysts import ANALYST_MODEL, AnalystView, aggregate, run_analysts
 from committee.snapshot import ATM_IV_NOT_SUPPLIED, render_snapshot
@@ -187,6 +188,28 @@ def _cached_client(client, cache, model: str):
     return call
 
 
+def _calibration_weights(journal, roles) -> dict[str, float]:
+    """Per-role voting weight from the journal's resolved outcomes.
+
+    Fail SOFT, deliberately, and this is the one place in the committee where
+    that is the right call: calibration is an input to a vote, not a
+    precondition for one. An unreadable journal, a dry run with no journal at
+    all, or a bug in the scoring must degrade to equal weights — the exact
+    behaviour of every cycle before this was wired in — and never abstain a
+    desk that has otherwise reasoned correctly. (Contrast the guard and the
+    veto, where silence IS a refusal: those decide whether to trade, this
+    decides only how loudly each analyst speaks.)
+    """
+    if journal is None or not roles:
+        return {}
+    try:
+        return calibration.analyst_weights(journal, sorted(set(roles)))
+    except Exception as e:  # noqa: BLE001 - a vote must not need a calibration
+        logger.error("Calibration weights unavailable (%s: %s) — falling back "
+                     "to equal weights", type(e).__name__, e)
+        return {}
+
+
 # ── the cycle ────────────────────────────────────────────────
 
 def decide(underlying: str, spot: float, realized_vol: float,
@@ -287,7 +310,18 @@ def _decide_inner(underlying, spot, realized_vol, candidates, journal, cache,
             "snapshot_hash": snapshot_hash,
         })
 
-    agg = aggregate(list(views))
+    # The self-grading loop, closed. Weights are recomputed from the journal
+    # every cycle (never stored — calibration.py), so an analyst's influence
+    # tracks its ACTUAL resolved track record rather than a cached opinion of
+    # it. Today every role is unproven and every weight is exactly 1.0, so
+    # this changes no live decision; it starts to bite as outcomes resolve,
+    # which is only possible now that exit_monitor journals closes with a
+    # realized P&L.
+    weights = _calibration_weights(journal, [v.role for v in views])
+    # `or None` so a cycle with no weights at all (dry run, unreadable
+    # journal) takes the byte-identical unweighted path rather than a
+    # weighted one that merely happens to agree.
+    agg = aggregate(list(views), weights or None)
     if agg is None:
         reasons = "; ".join(f"{v.role}: {v.abstain_reason}" for v in views) or "no analysts ran"
         return abstain(f"every analyst abstained ({reasons})", views=views)
@@ -299,6 +333,11 @@ def _decide_inner(underlying, spot, realized_vol, candidates, journal, cache,
         "choice_id": choice_id,
         "aggregate_probability": agg,
         "reasoning": trader_reasoning,
+        # Which weights actually applied to THIS decision. Recorded rather
+        # than recomputed later, because the journal grows: a judge replaying
+        # this cycle next week must see the weights that were in force when
+        # it was decided, not the ones that would be derived today.
+        "analyst_weights": weights,
     })
 
     if choice_id == ABSTAIN:
