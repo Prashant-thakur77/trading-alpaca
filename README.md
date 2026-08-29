@@ -311,6 +311,16 @@ Judges deserve stated limits:
   none exists rather than inventing one.
 - **The vega limit binds on straddles, not verticals** — a spread's legs have
   nearly cancelling vega. That is correct behaviour, not a limit doing work.
+- **Paper fills are simulated.** Nothing here has crossed a real spread against a
+  real counterparty, and a five-day window cannot establish edge under any
+  statistical test.
+- **Richness is not edge.** The fitted volatility smile is a measurement. The median
+  strike that clears its own bid-ask noise is worth roughly $3.94 per contract
+  against a $4.00 median quoted spread, so richness is used only to break ties
+  between strikes that are already viable on liquidity, DTE and risk grounds. See
+  [`docs/research/smile-feasibility.md`](docs/research/smile-feasibility.md), which
+  also records a signal-to-noise figure I published and later had to correct as not
+  robust.
 - Known gaps are tracked in [PLAN.md](PLAN.md) and the execution ledger in
   `docs/superpowers/records/`.
 

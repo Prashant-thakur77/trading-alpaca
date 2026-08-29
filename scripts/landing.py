@@ -492,6 +492,16 @@ def build() -> str:
       <div class="d">The fail-closed replay was produced by injecting a data outage
         into the real entrypoint. No live cycle has hit one yet, and the fixture says
         so in its own provenance field.</div></div>
+    <div><div class="c" style="color:var(--coral)">Paper fills are simulated</div>
+      <div class="d">Nothing here has crossed a real spread against a real
+        counterparty. A five-day window cannot establish edge under any statistical
+        test, and we make no such claim.</div></div>
+    <div><div class="c" style="color:var(--coral)">Richness is not edge</div>
+      <div class="d">The measured smile deviation is smaller than the bid-ask spread
+        it would have to cross: the median strike that clears its own noise is worth
+        about $3.94 per contract against a $4.00 median spread. It is used only to
+        break ties between strikes that are already viable, never as a reason to
+        trade.</div></div>
   </div>
   <div class="caveat rv">The most famous track record in this industry, Medallion's, is
     known through a journalist's interviews rather than an audit. What keeps it credible
