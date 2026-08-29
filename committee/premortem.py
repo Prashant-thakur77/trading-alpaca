@@ -90,8 +90,13 @@ PREMORTEM_MODEL = "claude-haiku-4-5"
 #: Structures whose loss comes from the underlying moving DOWN / UP. A
 #: long straddle appears in neither: it loses to the underlying standing
 #: still, so no single "beyond" level describes its failure.
-_DOWNSIDE_STRUCTURES = {"bull_put_spread"}
-_UPSIDE_STRUCTURES = {"bear_call_spread"}
+#:
+#: The debit verticals sit alongside their credit counterparts: a bull CALL
+#: spread loses to the downside exactly as a bull PUT spread does, and a bear
+#: PUT spread loses to the upside exactly as a bear CALL spread does. Which
+#: side pays the premium does not change which side hurts.
+_DOWNSIDE_STRUCTURES = {"bull_put_spread", "bull_call_spread"}
+_UPSIDE_STRUCTURES = {"bear_call_spread", "bear_put_spread"}
 _TWO_SIDED_STRUCTURES = {"iron_condor"}
 
 

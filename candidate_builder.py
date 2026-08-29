@@ -7,11 +7,25 @@ among these candidates or ABSTAIN; they never invent order parameters
 (CLAUDE.md hard rule 1).
 
 Only defined-risk structures are constructible (hard rule 3):
-  - bull put credit spread   (bullish / neutral)
-  - bear call credit spread  (bearish / neutral)
-  - iron condor              (neutral, range-bound)
-  - long straddle            (long volatility)
+  - bull put credit spread   (bullish / neutral, SHORT premium)
+  - bear call credit spread  (bearish / neutral, SHORT premium)
+  - iron condor              (neutral, range-bound, SHORT premium)
+  - long straddle            (long volatility, LONG premium)
+  - bull call debit spread   (bullish, LONG premium)
+  - bear put debit spread    (bearish, LONG premium)
 There is no code path that produces a naked short option.
+
+The two debit verticals exist because the long-premium half of the menu was
+otherwise unreachable. Measured over a 43-window replay of post-cutoff data,
+the desk abstained in 31 windows and 23 of those shared one cause: the only
+long-premium structure was the long straddle, which at SPY's price costs
+$2,270-$2,639 in max loss against risk.yaml's $1,000 max_loss_per_position,
+so `committee/snapshot._drop_certain_denials` removed it from EVERY window.
+The surfaced menu was therefore 100% short premium during a stretch where
+implied vol sat below realized — the regime that argues for BUYING premium.
+The desk refused correctly and had nothing else to offer. A 5-wide debit
+vertical costs only the debit paid (typically $150-$350), so the same view
+now has an expressible, cap-clearing structure.
 
 Builders return None when a leg fails the liquidity gate — a missing candidate,
 never a marginal one (hard rule 2, fail closed). They raise ValueError on
@@ -199,6 +213,83 @@ def build_bear_call_spread(
     if short_call.expiry != long_call.expiry:
         raise ValueError("vertical spread legs must share an expiry")
     return _vertical_credit_spread(short_call, long_call, "bear_call_spread", contracts)
+
+
+def _vertical_debit_spread(
+    long: OptionQuote,
+    short: OptionQuote,
+    structure: str,
+    contracts: int,
+) -> TradeIntent | None:
+    """Shared math for the two debit verticals.
+
+    Sign convention matches `build_long_straddle`: a debit paid is rendered as
+    a NEGATIVE `net_credit`, so every downstream consumer that reads the sign
+    (options_orders' limit price, exit_monitor's P&L) works unchanged.
+
+    Risk is the premium paid; reward is the width less that premium. The two
+    always sum to the full width, which is the identity worth remembering:
+    a debit vertical is the mirror image of the credit vertical struck at the
+    same two strikes.
+    """
+    if not _gate(long, short):
+        return None
+
+    debit = long.mid - short.mid
+    width = abs(long.strike - short.strike)
+    max_loss = debit * CONTRACT_MULTIPLIER * contracts
+    max_profit = (width - debit) * CONTRACT_MULTIPLIER * contracts
+
+    if structure == "bull_call_spread":
+        breakevens = (long.strike + debit,)
+    else:  # bear_put_spread
+        breakevens = (long.strike - debit,)
+
+    return TradeIntent(
+        underlying=long.underlying,
+        structure=structure,
+        legs=(Leg(long, "buy", contracts), Leg(short, "sell", contracts)),
+        contracts=contracts,
+        net_credit=-debit,
+        max_loss=max_loss,
+        max_profit=max_profit,
+        breakevens=breakevens,
+        dte=long.dte,
+    )
+
+
+def build_bull_call_spread(
+    long_call: OptionQuote, short_call: OptionQuote, contracts: int = 1
+) -> TradeIntent | None:
+    """Buy the lower-strike call, sell the higher-strike call. Bullish, LONG
+    premium. Max loss is the debit paid; max profit is width minus debit."""
+    if long_call.right != "c" or short_call.right != "c":
+        raise ValueError("bull call spread requires two calls")
+    if long_call.strike >= short_call.strike:
+        raise ValueError(
+            f"bull call spread buys the lower strike "
+            f"(got long={long_call.strike}, short={short_call.strike})"
+        )
+    if long_call.expiry != short_call.expiry:
+        raise ValueError("vertical spread legs must share an expiry")
+    return _vertical_debit_spread(long_call, short_call, "bull_call_spread", contracts)
+
+
+def build_bear_put_spread(
+    long_put: OptionQuote, short_put: OptionQuote, contracts: int = 1
+) -> TradeIntent | None:
+    """Buy the higher-strike put, sell the lower-strike put. Bearish, LONG
+    premium. Max loss is the debit paid; max profit is width minus debit."""
+    if long_put.right != "p" or short_put.right != "p":
+        raise ValueError("bear put spread requires two puts")
+    if long_put.strike <= short_put.strike:
+        raise ValueError(
+            f"bear put spread buys the higher strike "
+            f"(got long={long_put.strike}, short={short_put.strike})"
+        )
+    if long_put.expiry != short_put.expiry:
+        raise ValueError("vertical spread legs must share an expiry")
+    return _vertical_debit_spread(long_put, short_put, "bear_put_spread", contracts)
 
 
 def build_iron_condor(

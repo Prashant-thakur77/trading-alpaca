@@ -63,6 +63,16 @@ class TestConfigLoading:
         assert cfg.max_abs_net_delta == 30.0
         assert cfg.max_abs_net_vega == 200.0
 
+    def test_allowlist_covers_every_structure_the_builder_can_produce(self):
+        """The builder and the guard must not drift apart: a structure the
+        builder emits but risk.yaml omits is a candidate that can never trade
+        (the exact shape of the 72%-abstention defect, one layer down)."""
+        cfg = load_risk_config(os.path.join(os.path.dirname(__file__), "..", "risk.yaml"))
+        assert set(cfg.allowed_structures) >= {
+            "bull_put_spread", "bear_call_spread", "iron_condor",
+            "long_straddle", "bull_call_spread", "bear_put_spread",
+        }
+
     def test_missing_file_raises_rather_than_defaulting(self):
         """A guard with invented defaults is worse than no guard."""
         with pytest.raises(Exception):
@@ -180,6 +190,16 @@ class TestStructureAllowlist:
     def test_allows_a_listed_structure(self, guard):
         straddle = build_long_straddle(_q(450, "c", 2.00, 2.10), _q(450, "p", 2.00, 2.10))
         assert guard.evaluate(straddle, _flat()).decision == Verdict.ALLOW
+
+    def test_allows_the_debit_verticals(self, guard):
+        """risk.yaml must list bull_call_spread / bear_put_spread, or the
+        long-premium structures the builder now produces would be denied by
+        name at the guard and never reach a broker."""
+        from candidate_builder import build_bull_call_spread, build_bear_put_spread
+        bull = build_bull_call_spread(_q(450, "c", 5.00, 5.10), _q(455, "c", 3.00, 3.10))
+        bear = build_bear_put_spread(_q(450, "p", 5.00, 5.10), _q(445, "p", 3.00, 3.10))
+        assert guard.evaluate(bull, _flat()).decision == Verdict.ALLOW
+        assert guard.evaluate(bear, _flat()).decision == Verdict.ALLOW
 
     def test_denies_an_unlisted_structure(self, guard):
         """Anything not on the risk.yaml allowlist is refused by name."""

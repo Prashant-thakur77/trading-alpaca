@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from candidate_builder import (
     OptionQuote, Leg, TradeIntent, build_bull_put_spread, build_bear_call_spread,
-    build_long_straddle,
+    build_long_straddle, build_bull_call_spread, build_bear_put_spread,
 )
 from llm.client import LLMResponse
 from committee.veto import thesis_check, blind_review
@@ -50,6 +50,28 @@ def test_bear_call_spread_is_net_short_delta():
     )
     ok, reason = thesis_check(intent, SPOT)
     assert ok is True
+
+
+def test_bull_call_spread_is_net_long_delta():
+    """A debit vertical carries a directional thesis exactly as a credit
+    vertical does. Without an explicit branch, `thesis_check` falls through to
+    its unknown-structure fail-closed and vetoes every long-premium trade —
+    reproducing the abstention defect at the veto layer."""
+    intent = build_bull_call_spread(
+        _q(500, "c", 5.90, 6.10), _q(505, "c", 3.40, 3.60)
+    )
+    ok, reason = thesis_check(intent, SPOT)
+    assert ok is True
+    assert "delta" in reason.lower()
+
+
+def test_bear_put_spread_is_net_short_delta():
+    intent = build_bear_put_spread(
+        _q(500, "p", 5.85, 6.05), _q(495, "p", 3.40, 3.60)
+    )
+    ok, reason = thesis_check(intent, SPOT)
+    assert ok is True
+    assert "delta" in reason.lower()
 
 
 def test_long_straddle_is_near_delta_neutral():
@@ -238,3 +260,48 @@ def test_blind_review_prompt_contains_exactly_the_intent_derived_fields():
         assert f"{leg.side} {leg.quote.strike:.2f}{leg.quote.right}" in prompt
     for b in intent.breakevens:
         assert f"{b:.2f}" in prompt
+
+
+# ---- the blind reviewer must be told what a negative net_credit means ----
+#
+# Measured on the re-run of the June-July seeded windows. On 2026-06-15 the
+# committee chose c4, a well-formed bear_put_spread, and the blind reviewer
+# vetoed it with: "This bear put spread is structured as a debit trade
+# (paying 0.62 to enter), not a credit spread." The trade was exactly what it
+# claimed to be; the prompt showed it "NET_CREDIT: -0.62" and never said what
+# the sign meant, so the reviewer read a correct debit vertical as a
+# malformed credit spread and refused it. committee/premortem.py's prompt
+# already labels the same field "(per share, negative = debit paid)".
+
+def _blind_prompt_for(intent):
+    captured = {}
+
+    def client(prompt):
+        captured["prompt"] = prompt
+        return _ok_response({"agree": True, "reasoning": "fine"})
+
+    blind_review(intent, SPOT, 0.18, client=client)
+    return captured["prompt"]
+
+
+def test_blind_review_prompt_states_the_net_credit_sign_convention():
+    prompt = _blind_prompt_for(build_bear_put_spread(
+        _q(500, "p", 5.85, 6.05), _q(495, "p", 3.40, 3.60)))
+    assert "NET_CREDIT" in prompt
+    assert "debit" in prompt.lower()
+
+
+def test_blind_review_prompt_shows_max_profit_so_a_debit_trade_has_a_reward():
+    """For a credit spread NET_CREDIT is itself the reward. For a debit trade
+    it is the cost, and without MAX_PROFIT the reviewer is shown a price and a
+    loss with no upside at all to weigh them against."""
+    prompt = _blind_prompt_for(build_bull_call_spread(
+        _q(500, "c", 5.90, 6.10), _q(505, "c", 3.40, 3.60)))
+    assert "MAX_PROFIT" in prompt
+
+
+def test_blind_review_prompt_renders_an_unbounded_max_profit_as_inf():
+    prompt = _blind_prompt_for(build_long_straddle(
+        _q(500, "c", 5.90, 6.10), _q(500, "p", 5.85, 6.05)))
+    assert "MAX_PROFIT" in prompt
+    assert "inf" in prompt

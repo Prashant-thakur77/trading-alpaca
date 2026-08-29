@@ -42,11 +42,22 @@ daily:
 
 structures:
   # Nothing outside this list can be sent. Naked shorts are unrepresentable.
+  # The list must cover every structure candidate_builder.py can produce: a
+  # structure the builder emits but this list omits is a candidate that is
+  # built, surfaced, chosen, and then denied by name at the guard.
   allowed:
+    # short premium
     - bull_put_spread
     - bear_call_spread
     - iron_condor
+    # long premium. The debit verticals were added because the long straddle
+    # is the only other long-premium structure and its max_loss ($2,270+ on a
+    # live SPY chain) exceeds max_loss_per_position above, making it a
+    # guaranteed DENY — which left the desk with a 100% short-premium menu it
+    # correctly refused to trade in an IV-below-realized regime.
     - long_straddle
+    - bull_call_spread
+    - bear_put_spread
 
 kill_switch:
   # Either trips a halt: the file existing, or the env var being set to 1.

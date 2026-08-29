@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from candidate_builder import (
     OptionQuote, build_bull_put_spread, build_bear_call_spread, build_long_straddle,
+    build_bull_call_spread, build_bear_put_spread,
 )
 from committee.snapshot import Snapshot, render_snapshot
 
@@ -37,6 +38,24 @@ def _bull_put(short_strike, long_strike):
 def _bear_call(short_strike, long_strike):
     intent = build_bear_call_spread(
         _q(short_strike, "c", 2.40, 2.60), _q(long_strike, "c", 1.45, 1.55)
+    )
+    assert intent is not None
+    return intent
+
+
+def _bull_call(long_strike, short_strike):
+    """A long-premium DEBIT vertical: buy the lower call, sell the higher."""
+    intent = build_bull_call_spread(
+        _q(long_strike, "c", 2.40, 2.60), _q(short_strike, "c", 1.45, 1.55)
+    )
+    assert intent is not None
+    return intent
+
+
+def _bear_put(long_strike, short_strike):
+    """A long-premium DEBIT vertical: buy the higher put, sell the lower."""
+    intent = build_bear_put_spread(
+        _q(long_strike, "p", 2.40, 2.60), _q(short_strike, "p", 1.45, 1.55)
     )
     assert intent is not None
     return intent
@@ -677,3 +696,153 @@ def test_credit_floor_emptying_a_structure_lets_the_rest_fill_the_cap():
     structures = {i.structure for i in s.candidates.values()}
     assert structures == {"bull_put_spread"}
     assert len(s.candidates) == 4
+
+
+# ---- the DEBIT verticals must survive the credit floor and be visible ----
+#
+# This is the exact class of bug that produced the 72% abstention rate: a
+# filter written for one structure family silently eliminating another. The
+# long-premium structures exist so the desk can express a buy-premium view
+# when implied vol sits BELOW realized; a filter or a cap that removes them
+# reproduces the original defect in a new place.
+
+def _many_bull_calls(n, start=500):
+    return [_bull_call(start + i, start + 5 + i) for i in range(n)]
+
+
+def _many_bear_puts(n, start=500):
+    return [_bear_put(start - i, start - 5 - i) for i in range(n)]
+
+
+def test_debit_verticals_are_not_dropped_by_the_credit_to_risk_floor():
+    """`_drop_thin_credit` is a rule about CREDIT collected. A debit vertical
+    has a NEGATIVE net_credit by construction, so a credit-to-risk ratio test
+    would reject it unconditionally — removing the only affordable
+    long-premium structure the desk has."""
+    bull = _bull_call(500, 505)
+    bear = _bear_put(500, 495)
+    assert bull.net_credit < 0 and bear.net_credit < 0
+    assert not bull.is_credit and not bear.is_credit
+    s = render_snapshot("SPY", 500.0, 0.18, [bull, bear], max_loss_cap=1000.0)
+    assert bull in s.candidates.values()
+    assert bear in s.candidates.values()
+
+
+def test_debit_verticals_survive_alongside_a_thin_credit_spread():
+    """The credit floor must fire on the credit spread and leave the debit
+    verticals untouched in the same call."""
+    thin = _credit_spread_with_ratio(500.0, credit=0.02, width=5.0)
+    bull = _bull_call(500, 505)
+    s = render_snapshot("SPY", 500.0, 0.18, [thin, bull], max_loss_cap=1000.0)
+    assert thin not in s.candidates.values()
+    assert bull in s.candidates.values()
+
+
+def test_debit_verticals_clear_the_max_loss_cap_a_straddle_cannot():
+    """The measured defect: at SPY's live price the ATM straddle's max_loss
+    ($2,270-$2,639) exceeds risk.yaml's $1,000 cap, so `_drop_certain_denials`
+    removed it from every window. A 5-wide debit vertical costs the debit
+    paid, which clears the cap comfortably."""
+    straddle = _straddle(500)
+    bull = _bull_call(500, 505)
+    assert bull.max_loss < 1000.0 < straddle.max_loss * 10  # sanity on units
+    s = render_snapshot("SPY", 500.0, 0.18, [straddle, bull], max_loss_cap=200.0)
+    assert straddle not in s.candidates.values()
+    assert bull in s.candidates.values()
+
+
+def test_credit_structures_do_not_crowd_out_the_long_premium_structures():
+    """Round-robin across structures: a menu dominated in COUNT by credit
+    spreads must still surface the debit verticals. This is the whole point —
+    a long-premium option has to be VISIBLE when the regime calls for it."""
+    candidates = (_many_bull_puts(20) + _many_bear_calls(20)
+                  + _many_bull_calls(3) + _many_bear_puts(3))
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=12,
+                        max_loss_cap=1000.0)
+    structures = {i.structure for i in s.candidates.values()}
+    assert "bull_call_spread" in structures
+    assert "bear_put_spread" in structures
+
+
+def test_mixed_menu_of_all_five_structures_fits_the_cap():
+    candidates = (_many_bull_puts(6) + _many_bear_calls(6) + _many_straddles(2)
+                  + _many_bull_calls(6) + _many_bear_puts(6))
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=10,
+                        max_loss_cap=100000.0)
+    assert len(s.candidates) == 10
+    structures = {i.structure for i in s.candidates.values()}
+    assert structures == {"bull_put_spread", "bear_call_spread", "long_straddle",
+                          "bull_call_spread", "bear_put_spread"}
+
+
+def test_debit_verticals_render_their_negative_credit_and_finite_profit():
+    s = render_snapshot("SPY", 500.0, 0.18, [_bull_call(500, 505)], max_loss_cap=1000.0)
+    assert "bull_call_spread" in s.text
+    assert "net_credit=-" in s.text
+    assert "max_profit=inf" not in s.text
+
+
+def test_selection_stays_deterministic_and_order_independent_with_debit_verticals():
+    candidates = (_many_bull_puts(8) + _many_bear_calls(8)
+                  + _many_bull_calls(5) + _many_bear_puts(5))
+    baseline = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=10,
+                               max_loss_cap=1000.0)
+    import random
+    shuffled_candidates = list(candidates)
+    random.Random(7).shuffle(shuffled_candidates)
+    shuffled = render_snapshot("SPY", 500.0, 0.18, shuffled_candidates,
+                               max_candidates=10, max_loss_cap=1000.0)
+    assert shuffled.text == baseline.text
+    assert shuffled.candidates == baseline.candidates
+
+
+# ---- the net_credit SIGN must be legible, not just present ----
+#
+# Measured on the re-run of the June-July seeded windows, immediately after
+# the debit verticals were wired in. Window 2026-06-18 (IV 2.42pp BELOW
+# realized -- the regime that argues for buying premium) surfaced
+# bull_call_spread and bear_put_spread candidates, and the vol analyst still
+# abstained, in its own words: "Market favours long-vol (IV -2.42pp vs
+# realized), but all candidates are credit/mixed spreads with net short or
+# zero premium bias. No straddles available." It was looking at long-premium
+# candidates and could not tell. The only thing distinguishing them in the
+# rendered text was a minus sign on `net_credit`, with no statement of what
+# that sign means -- the identical failure `_iv_minus_realized` already
+# documents for the IV spread, where readers supplied the convention
+# backwards half the time. Present-but-unreadable is not visible.
+
+def test_snapshot_states_the_net_credit_sign_convention():
+    s = render_snapshot("SPY", 500.0, 0.18, [_bull_call(500, 505)], max_loss_cap=1000.0)
+    assert "NET_CREDIT_CONVENTION:" in s.text
+    lowered = s.text.lower()
+    assert "debit" in lowered
+    assert "long-premium" in lowered or "long premium" in lowered
+
+
+def test_the_convention_line_is_present_even_for_an_all_credit_menu():
+    """A reader must not have to infer the convention from the sign it
+    happens to see; the definition is unconditional."""
+    s = render_snapshot("SPY", 500.0, 0.18, [_bull_put(495, 490)], max_loss_cap=1000.0)
+    assert "NET_CREDIT_CONVENTION:" in s.text
+
+
+def test_the_convention_line_never_prescribes_which_to_pick():
+    """It states the definition only. Telling the committee which side to
+    take would make its agreement meaningless — the same rule the
+    IV-vs-realized line follows."""
+    line = [l for l in render_snapshot(
+        "SPY", 500.0, 0.18, [_bull_call(500, 505)], max_loss_cap=1000.0
+    ).text.splitlines() if l.startswith("NET_CREDIT_CONVENTION:")][0]
+    lowered = line.lower()
+    for word in ("should", "prefer", "favours", "favors", "recommend", "abstain"):
+        assert word not in lowered
+
+
+def test_the_convention_line_does_not_break_determinism():
+    candidates = _many_bull_calls(4) + _many_bull_puts(4)
+    a = render_snapshot("SPY", 500.0, 0.18, candidates, max_loss_cap=1000.0)
+    import random
+    shuffled = list(candidates)
+    random.Random(11).shuffle(shuffled)
+    b = render_snapshot("SPY", 500.0, 0.18, shuffled, max_loss_cap=1000.0)
+    assert a.text == b.text

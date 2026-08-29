@@ -30,9 +30,51 @@ def test_all_candidates_are_defined_risk():
 
 
 def test_all_candidates_use_allowed_structures():
-    allowed = {"bull_put_spread", "bear_call_spread", "iron_condor", "long_straddle"}
+    """Read the allowlist from risk.yaml itself, not a copy of it: a builder
+    that produced a structure RiskGuard has never heard of would be denied at
+    the guard, and a hardcoded set here could not tell the difference."""
+    import risk_guard
+    allowed = set(risk_guard.load_risk_config(
+        os.path.join(os.path.dirname(__file__), "..", "risk.yaml")).allowed_structures)
     for intent in build_candidates(_chain(), "SPY", spot=450.0):
         assert intent.structure in allowed
+
+
+def test_chain_yields_long_premium_debit_verticals():
+    """The structural gap this fixes: before debit verticals existed, the only
+    long-premium structure was a long_straddle, whose max_loss exceeded
+    risk.yaml's $1,000 cap on every live SPY chain — so the menu was 100%
+    short premium and the desk could not express a buy-premium view at all."""
+    structures = {i.structure for i in build_candidates(_chain(), "SPY", spot=450.0)}
+    assert "bull_call_spread" in structures
+    assert "bear_put_spread" in structures
+
+
+def test_debit_verticals_are_priced_as_debits_and_defined_risk():
+    for intent in build_candidates(_chain(), "SPY", spot=450.0):
+        if intent.structure in ("bull_call_spread", "bear_put_spread"):
+            assert intent.net_credit <= 0
+            assert intent.is_credit is False
+            assert intent.is_defined_risk
+            assert intent.max_loss < float("inf")
+
+
+def test_bull_call_spread_buys_below_and_sells_above():
+    for intent in build_candidates(_chain(), "SPY", spot=450.0):
+        if intent.structure == "bull_call_spread":
+            bought = [l for l in intent.legs if l.side == "buy"][0]
+            sold = [l for l in intent.legs if l.side == "sell"][0]
+            assert bought.quote.strike < sold.quote.strike
+            assert all(l.quote.right == "c" for l in intent.legs)
+
+
+def test_bear_put_spread_buys_above_and_sells_below():
+    for intent in build_candidates(_chain(), "SPY", spot=450.0):
+        if intent.structure == "bear_put_spread":
+            bought = [l for l in intent.legs if l.side == "buy"][0]
+            sold = [l for l in intent.legs if l.side == "sell"][0]
+            assert bought.quote.strike > sold.quote.strike
+            assert all(l.quote.right == "p" for l in intent.legs)
 
 
 def test_candidates_are_mutually_distinct():

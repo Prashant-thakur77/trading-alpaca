@@ -146,10 +146,16 @@ def _drop_thin_credit(candidates: list[TradeIntent], min_ratio: float) -> list[T
     """Drop CREDIT_STRUCTURES candidates whose net credit is a negligible (or
     negative/zero) fraction of the capital at risk (see `MIN_CREDIT_TO_RISK`).
 
-    DEBIT structures (long_straddle, not in `CREDIT_STRUCTURES`) are never
-    touched here -- a credit-to-risk floor is meaningless for a trade that
-    pays a debit rather than collects one. They are already filtered on
-    their own max_loss by `_drop_certain_denials`.
+    DEBIT structures (long_straddle, bull_call_spread, bear_put_spread --
+    none of them in `CREDIT_STRUCTURES`) are never touched here: a
+    credit-to-risk floor is meaningless for a trade that pays a debit rather
+    than collects one, and every debit structure has a NEGATIVE net_credit by
+    construction, so applying the ratio to them would reject 100% of the
+    long-premium menu unconditionally. That is precisely the failure mode
+    that produced the 72% abstention rate one filter over -- a rule written
+    for one structure family silently erasing another -- so the exclusion is
+    pinned by its own tests. Debit structures are filtered only on their own
+    max_loss, by `_drop_certain_denials`.
 
     Structure-blind within the credit set and per-candidate, same shape as
     `_drop_certain_denials`: if it empties one structure entirely,
@@ -342,6 +348,33 @@ def _stratified_cap(
 
 UNAVAILABLE = "unavailable"
 
+# The `net_credit` sign convention, stated for the reader rather than left to
+# be inferred from whichever sign happens to appear.
+#
+# Measured on the seeded June-July replay windows immediately after the debit
+# verticals were added: window 2026-06-18 surfaced bull_call_spread and
+# bear_put_spread candidates into an IV-2.42pp-BELOW-realized regime, and the
+# vol analyst abstained anyway with "all candidates are credit/mixed spreads
+# with net short or zero premium bias. No straddles available." It was reading
+# long-premium candidates and could not tell, because the only thing marking
+# them was a minus sign whose meaning the snapshot never stated. This is the
+# same failure `_iv_minus_realized` documents at length for the IV spread:
+# readers supply a missing convention themselves, and supply it backwards
+# about half the time.
+#
+# Like that line, this one states ONLY the definition. It never says which
+# side to take — that judgement belongs to the committee, and prescribing it
+# here would make the analysts' agreement meaningless.
+NET_CREDIT_CONVENTION = (
+    "NET_CREDIT_CONVENTION: net_credit is per share. POSITIVE means premium "
+    "is RECEIVED (a short-premium/credit trade: bull_put_spread, "
+    "bear_call_spread, iron_condor). NEGATIVE means premium is PAID (a "
+    "long-premium/debit trade: bull_call_spread, bear_put_spread, "
+    "long_straddle) — a negative net_credit is a correctly formed debit "
+    "trade, not a malformed credit spread. For a credit trade max_profit is "
+    "the premium received; for a debit trade max_loss is the premium paid."
+)
+
 
 def _leg_iv(leg, spot: float, dte: int) -> float | None:
     """Implied vol for one leg, or None when no IV solves its quote.
@@ -483,7 +516,8 @@ def render_snapshot(
     dropped (`_drop_thin_credit`, floor `MIN_CREDIT_TO_RISK`) — see that
     constant's docstring for the measured live case (a 249:1 risk/reward
     spread the blind reviewer had to catch by hand) that motivates it. DEBIT
-    candidates (long_straddle) are untouched by this filter.
+    candidates (long_straddle, bull_call_spread, bear_put_spread) are
+    untouched by this filter.
 
     The surviving candidates are sorted by a canonical key (structure, dte,
     strikes, net credit, contracts) before ids c1..cN are assigned. The list
@@ -534,6 +568,7 @@ def render_snapshot(
         f"REALIZED_VOL: {_pct(realized_vol)}%",
         f"IMPLIED_VOL_ATM: {f'{_pct(atm_iv)}%' if atm_iv is not None else UNAVAILABLE}",
         f"IV_MINUS_REALIZED: {_iv_minus_realized(atm_iv, realized_vol)}",
+        NET_CREDIT_CONVENTION,
         f"CANDIDATES ({len(capped)} of {total}):",
     ]
     for cid, intent in by_id.items():

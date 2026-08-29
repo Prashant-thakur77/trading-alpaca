@@ -30,7 +30,7 @@ import pytest
 
 from candidate_builder import (
     OptionQuote, build_bear_call_spread, build_bull_put_spread,
-    build_long_straddle,
+    build_long_straddle, build_bull_call_spread, build_bear_put_spread,
 )
 from committee.premortem import (
     FORCED_DTE_BELOW, KIND_CREDIT_DECAY, KIND_DTE_BELOW, KIND_IV_SPIKE,
@@ -62,6 +62,14 @@ def _bear_call():
 
 def _straddle():
     return build_long_straddle(_q(500, "c", 5.90, 6.10), _q(500, "p", 5.85, 6.05))
+
+
+def _bull_call():
+    return build_bull_call_spread(_q(500, "c", 5.90, 6.10), _q(505, "c", 3.40, 3.60))
+
+
+def _bear_put():
+    return build_bear_put_spread(_q(500, "p", 5.85, 6.05), _q(495, "p", 3.40, 3.60))
 
 
 def _client(payload, ok=True, error=""):
@@ -236,6 +244,47 @@ class TestValuesAreSanityChecked:
                 {"kind": KIND_UNDERLYING_BEYOND, "threshold": 507.0,
                  "rationale": "spot through the short 505 call"}]}))
         assert [t.threshold for t in _of_kind(triggers, KIND_UNDERLYING_BEYOND)] == [507.0]
+
+    def test_a_bull_call_underlying_level_below_spot_is_kept(self):
+        """A bull CALL spread is long premium but loses to the DOWNSIDE, just
+        like a bull put spread. Leaving it out of the structure map would make
+        every underlying level nonsense for it and discard them all."""
+        triggers = premortem(_bull_call(), SPOT, REALIZED_VOL, client=_client({
+            "failure_modes": [
+                {"kind": KIND_UNDERLYING_BEYOND, "threshold": 492.0,
+                 "rationale": "spot falls away from the long 500 call"}]}))
+        assert [t.threshold for t in _of_kind(triggers, KIND_UNDERLYING_BEYOND)] == [492.0]
+
+    def test_a_bull_call_underlying_level_above_spot_is_discarded(self):
+        triggers = premortem(_bull_call(), SPOT, REALIZED_VOL, client=_client({
+            "failure_modes": [
+                {"kind": KIND_UNDERLYING_BEYOND, "threshold": 520.0,
+                 "rationale": "a rally"}]}))
+        assert _of_kind(triggers, KIND_UNDERLYING_BEYOND) == []
+
+    def test_a_bear_put_underlying_level_above_spot_is_kept(self):
+        triggers = premortem(_bear_put(), SPOT, REALIZED_VOL, client=_client({
+            "failure_modes": [
+                {"kind": KIND_UNDERLYING_BEYOND, "threshold": 508.0,
+                 "rationale": "spot rallies away from the long 500 put"}]}))
+        assert [t.threshold for t in _of_kind(triggers, KIND_UNDERLYING_BEYOND)] == [508.0]
+
+    def test_a_bear_put_underlying_level_below_spot_is_discarded(self):
+        triggers = premortem(_bear_put(), SPOT, REALIZED_VOL, client=_client({
+            "failure_modes": [
+                {"kind": KIND_UNDERLYING_BEYOND, "threshold": 480.0,
+                 "rationale": "a selloff"}]}))
+        assert _of_kind(triggers, KIND_UNDERLYING_BEYOND) == []
+
+    def test_a_debit_vertical_gets_no_credit_decay_trigger(self):
+        """A debit structure received no credit, so a credit-decay fraction
+        has nothing to decay. Already enforced by the net_credit <= 0 rule;
+        pinned here because the debit verticals are new to that path."""
+        triggers = premortem(_bull_call(), SPOT, REALIZED_VOL, client=_client({
+            "failure_modes": [
+                {"kind": KIND_CREDIT_DECAY, "threshold": 0.5,
+                 "rationale": "half the credit gone"}]}))
+        assert _of_kind(triggers, KIND_CREDIT_DECAY) == []
 
     def test_a_straddle_gets_no_underlying_level_at_all(self):
         """A long straddle's failure mode is the underlying NOT moving. A

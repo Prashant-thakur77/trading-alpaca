@@ -55,7 +55,8 @@ from committee.premortem import (
     PREMORTEM_MODEL, deterministic_triggers, premortem as run_premortem,
 )
 from candidate_builder import (
-    build_bear_call_spread, build_bull_put_spread, build_long_straddle,
+    build_bear_call_spread, build_bear_put_spread, build_bull_call_spread,
+    build_bull_put_spread, build_long_straddle,
 )
 from executor_options import OptionsExecutor
 from exit_monitor import OpenTrade, OpenTradeStore, monitor_positions
@@ -404,6 +405,34 @@ def _build_candidates_for_expiry(chain, spot: float, width: float) -> list:
         long_leg = by_strike_c.get(short.strike + width)
         if long_leg:
             intent = build_bear_call_spread(short, long_leg)
+            if intent:
+                candidates.append(intent)
+
+    # Bull call DEBIT spreads: short strike above spot, long strike `width`
+    # lower — the exact mirror of the bear call loop above, buying the spread
+    # instead of selling it. Anchoring on the short leg (rather than the long)
+    # is what makes the range span ITM-long through OTM-long on a dense chain:
+    # the nearest short strike above spot pairs with a long `width` below it,
+    # which is in the money.
+    #
+    # This loop and the bear put loop below are why the desk can hold a
+    # long-premium view at all. Before them the only long-premium structure
+    # was the long straddle, whose max_loss exceeds risk.yaml's cap on a live
+    # SPY chain, so `_drop_certain_denials` removed it from every window and
+    # the surfaced menu was 100% short premium.
+    for short in [q for q in calls if q.strike > spot]:
+        long_leg = by_strike_c.get(short.strike - width)
+        if long_leg:
+            intent = build_bull_call_spread(long_leg, short)
+            if intent:
+                candidates.append(intent)
+
+    # Bear put DEBIT spreads: short strike below spot, long strike `width`
+    # higher — the mirror of the bull put loop.
+    for short in [q for q in puts if q.strike < spot]:
+        long_leg = by_strike_p.get(short.strike + width)
+        if long_leg:
+            intent = build_bear_put_spread(long_leg, short)
             if intent:
                 candidates.append(intent)
 

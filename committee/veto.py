@@ -36,6 +36,8 @@ from llm.client import call_claude
 # which is why the band scales with `intent.contracts` (see thesis_check).
 NEUTRAL_DELTA_THRESHOLD = 15.0
 
+_BULLISH_STRUCTURES = {"bull_put_spread", "bull_call_spread"}
+_BEARISH_STRUCTURES = {"bear_call_spread", "bear_put_spread"}
 _NEUTRAL_STRUCTURES = {"long_straddle", "iron_condor"}
 
 BLIND_REVIEW_MODEL = "claude-haiku-4-5"
@@ -47,6 +49,8 @@ analyst's reasoning or debate. Judge, from this alone, whether the trade's \
 direction (or lack of one, for a neutral structure) is a reasonable reading \
 of the given price action.
 
+CONVENTIONS. NET_CREDIT is per share: POSITIVE means premium is RECEIVED (a credit trade), NEGATIVE means premium is PAID (a long-premium DEBIT trade, such as a debit vertical or a straddle). A negative NET_CREDIT is a correctly formed debit trade, NOT a malformed credit spread. MAX_LOSS and MAX_PROFIT are total position dollars; MAX_PROFIT is `inf` when the upside is unbounded.
+
 UNDERLYING: {underlying}
 SPOT: {spot:.2f}
 REALIZED_VOL: {realized_vol_pct:.2f}%
@@ -54,6 +58,7 @@ STRUCTURE: {structure}
 LEGS: {legs}
 NET_CREDIT: {net_credit:.2f}
 MAX_LOSS: {max_loss:.2f}
+MAX_PROFIT: {max_profit}
 BREAKEVENS: {breakevens}
 DTE: {dte}
 
@@ -73,20 +78,26 @@ def thesis_check(intent: TradeIntent, spot: float) -> tuple[bool, str]:
     net_delta, _net_vega = position_greeks
     structure = intent.structure
 
-    if structure == "bull_put_spread":
+    # Direction is a property of the thesis, not of whether premium is paid
+    # or collected: a bull CALL debit spread is bullish for the same reason a
+    # bull PUT credit spread is, and must be net long delta just the same.
+    # Omitting the debit verticals here would drop them through to the
+    # unknown-structure fail-closed below and veto every long-premium trade
+    # the builder can now produce.
+    if structure in _BULLISH_STRUCTURES:
         ok = net_delta > 0
         return ok, (
-            f"net delta {net_delta:.2f} consistent with bull put spread's bullish thesis"
+            f"net delta {net_delta:.2f} consistent with {structure}'s bullish thesis"
             if ok else
-            f"bull put spread requires net long delta; measured {net_delta:.2f}"
+            f"{structure} requires net long delta; measured {net_delta:.2f}"
         )
 
-    if structure == "bear_call_spread":
+    if structure in _BEARISH_STRUCTURES:
         ok = net_delta < 0
         return ok, (
-            f"net delta {net_delta:.2f} consistent with bear call spread's bearish thesis"
+            f"net delta {net_delta:.2f} consistent with {structure}'s bearish thesis"
             if ok else
-            f"bear call spread requires net short delta; measured {net_delta:.2f}"
+            f"{structure} requires net short delta; measured {net_delta:.2f}"
         )
 
     if structure in _NEUTRAL_STRUCTURES:
@@ -131,6 +142,11 @@ def blind_review(
         legs=legs,
         net_credit=intent.net_credit,
         max_loss=intent.max_loss,
+        # For a credit trade NET_CREDIT is itself the reward; for a debit
+        # trade it is the cost, so without this field the reviewer was shown
+        # a price and a loss with no upside to weigh them against.
+        max_profit=("inf" if intent.max_profit == float("inf")
+                    else f"{intent.max_profit:.2f}"),
         breakevens=", ".join(f"{b:.2f}" for b in intent.breakevens),
         dte=intent.dte,
     )

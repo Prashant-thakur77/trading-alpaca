@@ -49,6 +49,8 @@ from analytics import position_greeks  # noqa: E402
 from candidate_builder import (  # noqa: E402
     OptionQuote,
     build_bear_call_spread,
+    build_bear_put_spread,
+    build_bull_call_spread,
     build_bull_put_spread,
     build_iron_condor,
     build_long_straddle,
@@ -242,6 +244,12 @@ def rebuild_intent(candidate: dict, underlying: str, contracts: int, as_of: date
         if structure == "bull_put_spread":
             (short,), (long_,) = by("sell"), by("buy")
             return build_bull_put_spread(q(short), q(long_), contracts=contracts)
+        if structure == "bull_call_spread":
+            (long_,), (short,) = by("buy"), by("sell")
+            return build_bull_call_spread(q(long_), q(short), contracts=contracts)
+        if structure == "bear_put_spread":
+            (long_,), (short,) = by("buy"), by("sell")
+            return build_bear_put_spread(q(long_), q(short), contracts=contracts)
         if structure == "long_straddle":
             (call,), (put,) = by(right="c"), by(right="p")
             return build_long_straddle(q(call), q(put), contracts=contracts)
