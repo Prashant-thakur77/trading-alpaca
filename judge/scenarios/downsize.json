@@ -9,6 +9,7 @@
     "portfolio_state": "flat book (constructed, but trivially so \u2014 no limit besides per-position max_loss is in play here).",
     "guard_and_payload": "guard verdict and the downsized order payload are both computed fresh by the real code."
   },
+  "as_of": "2026-08-29",
   "market": {
     "underlying": "SPY",
     "spot": 769.35,
@@ -20,6 +21,7 @@
     {
       "id": "c1",
       "structure": "bear_call_spread",
+      "expiry": "2026-09-25",
       "dte": 27,
       "contracts": 1,
       "legs": [
@@ -50,6 +52,7 @@
     {
       "id": "c2",
       "structure": "bear_call_spread",
+      "expiry": "2026-09-30",
       "dte": 32,
       "contracts": 1,
       "legs": [
@@ -80,6 +83,7 @@
     {
       "id": "c3",
       "structure": "bear_call_spread",
+      "expiry": "2026-09-30",
       "dte": 32,
       "contracts": 1,
       "legs": [
@@ -110,6 +114,7 @@
     {
       "id": "c4",
       "structure": "bear_call_spread",
+      "expiry": "2026-10-02",
       "dte": 34,
       "contracts": 1,
       "legs": [
@@ -140,6 +145,7 @@
     {
       "id": "c5",
       "structure": "bear_call_spread",
+      "expiry": "2026-10-02",
       "dte": 34,
       "contracts": 1,
       "legs": [
@@ -170,6 +176,7 @@
     {
       "id": "c6",
       "structure": "bear_call_spread",
+      "expiry": "2026-10-02",
       "dte": 34,
       "contracts": 1,
       "legs": [
@@ -200,6 +207,7 @@
     {
       "id": "c7",
       "structure": "bull_put_spread",
+      "expiry": "2026-09-18",
       "dte": 20,
       "contracts": 1,
       "legs": [
@@ -230,6 +238,7 @@
     {
       "id": "c8",
       "structure": "bull_put_spread",
+      "expiry": "2026-09-25",
       "dte": 27,
       "contracts": 1,
       "legs": [
@@ -260,6 +269,7 @@
     {
       "id": "c9",
       "structure": "bull_put_spread",
+      "expiry": "2026-09-30",
       "dte": 32,
       "contracts": 1,
       "legs": [
@@ -290,6 +300,7 @@
     {
       "id": "c10",
       "structure": "bull_put_spread",
+      "expiry": "2026-10-02",
       "dte": 34,
       "contracts": 1,
       "legs": [
@@ -320,6 +331,7 @@
     {
       "id": "c11",
       "structure": "bull_put_spread",
+      "expiry": "2026-10-02",
       "dte": 34,
       "contracts": 1,
       "legs": [
@@ -350,6 +362,7 @@
     {
       "id": "c12",
       "structure": "bull_put_spread",
+      "expiry": "2026-10-02",
       "dte": 34,
       "contracts": 1,
       "legs": [

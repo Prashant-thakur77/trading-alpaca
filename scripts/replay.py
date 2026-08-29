@@ -38,7 +38,7 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -116,9 +116,78 @@ def load_fixture(name: str, scenarios_dir: Path | None = None) -> dict:
     return data
 
 
+# ── the fixture's own calendar ───────────────────────────────
+
+def fixture_as_of(name: str, fixture: dict) -> date:
+    """The date this fixture's market snapshot was OBSERVED on.
+
+    Every DTE-dependent gate in the desk — the 7-45 DTE window, the IV solve
+    behind the Greeks, the pre-mortem's 3-DTE exit — is derived from
+    `(expiry - as_of).days`. A replay that measured the fixture's expiries
+    against *today's* calendar would be answering a different question every
+    day, so the observation date is read from the fixture and never from the
+    clock.
+
+    `order_date` (present since the fixtures were first written, and the key
+    `client_order_id` is derived from) is accepted as a fallback because on
+    every committed fixture the desk observed the chain and cut the order on
+    the same session. They stay separate fields because they mean different
+    things: `as_of` is when the market was seen, `order_date` is the UTC day
+    the broker-side idempotency key belongs to.
+    """
+    raw = fixture.get("as_of") or fixture.get("order_date")
+    if not raw:
+        raise ScenarioError(
+            f"{name}: fixture has neither 'as_of' nor 'order_date' — refusing "
+            f"to date its option chain from the system clock")
+    try:
+        return date.fromisoformat(str(raw))
+    except ValueError as e:
+        raise ScenarioError(f"{name}: as_of {raw!r} is not an ISO date: {e}") from e
+
+
 # ── rebuilding a real TradeIntent from a fixture candidate ──
 
-def _quote(leg: dict, underlying: str, expiry: date) -> OptionQuote:
+def candidate_expiry(candidate: dict, as_of: date) -> date:
+    """The candidate's ABSOLUTE expiry, read from the fixture — never
+    reconstructed from the clock.
+
+    `dte` is kept in the fixtures for human readability, but it is derived
+    and cross-checked here rather than trusted: a candidate whose two
+    representations of the same fact disagree is a corrupt fixture, and this
+    is a judged artifact, so it fails loudly instead of picking one.
+    """
+    cid = candidate.get("id")
+    raw = {str(candidate["expiry"])} if candidate.get("expiry") else set()
+    raw |= {str(leg["expiry"]) for leg in candidate.get("legs") or []
+            if leg.get("expiry")}
+    if not raw:
+        raise ScenarioError(
+            f"candidate {cid!r} carries no absolute 'expiry' — refusing to "
+            f"anchor it to today's date, which would make this replay's OCC "
+            f"symbols drift one day per calendar day")
+    if len(raw) > 1:
+        raise ScenarioError(
+            f"candidate {cid!r} declares conflicting expiries {sorted(raw)}")
+    try:
+        expiry = date.fromisoformat(raw.pop())
+    except ValueError as e:
+        raise ScenarioError(f"candidate {cid!r} has a non-ISO expiry: {e}") from e
+
+    if "dte" in candidate:
+        declared = int(candidate["dte"])
+        derived = (expiry - as_of).days
+        if declared != derived:
+            raise ScenarioError(
+                f"candidate {cid!r} is self-inconsistent: expiry {expiry} is "
+                f"{derived} days after as_of {as_of}, but dte says {declared}")
+    return expiry
+
+
+def _quote(leg: dict, underlying: str, expiry: date, as_of: date) -> OptionQuote:
+    """One fixture leg as a real `OptionQuote`, stamped with the date it was
+    observed. `as_of` is what keeps `OptionQuote.dte` — and therefore every
+    gate derived from it — equal to what was recorded, on any future day."""
     strike = float(leg["strike"])
     symbol = leg.get("symbol") or (
         f"{underlying}{expiry:%y%m%d}{leg['right'].upper()}{int(strike * 1000):08d}"
@@ -126,33 +195,37 @@ def _quote(leg: dict, underlying: str, expiry: date) -> OptionQuote:
     return OptionQuote(
         symbol=symbol, underlying=underlying, strike=strike, expiry=expiry,
         right=leg["right"], bid=float(leg["bid"]), ask=float(leg["ask"]),
-        open_interest=int(leg["open_interest"]),
+        open_interest=int(leg["open_interest"]), as_of=as_of,
     )
 
 
-def rebuild_intent(candidate: dict, underlying: str, contracts: int):
+def rebuild_intent(candidate: dict, underlying: str, contracts: int, as_of: date):
     """Reconstruct the real `TradeIntent` for one fixture candidate via the
     REAL `candidate_builder` functions — never by hand-assembling the
     dataclass — so every liquidity gate and structural invariant the live
     builder enforces is enforced here too. Returns `None` if the candidate
     fails that gate on rebuild (a corrupted or self-inconsistent fixture).
 
-    `expiry` is anchored to `date.today() + dte`, never a fixed calendar
-    date: `candidate_builder` derives every DTE-dependent check from
-    `(expiry - date.today()).days`, so a fixed calendar date would make this
-    fixture's liquidity gate and DTE window silently drift as real days pass
-    — breaking the "replays identically forever" guarantee. Anchoring
-    relative to "now" keeps the reconstructed candidate's `dte` exactly what
-    was recorded, on every future replay, regardless of what day it is run.
+    Both dates come from the FIXTURE: the absolute `expiry` it records, and
+    the `as_of` the chain was observed on. Each quote is stamped with `as_of`,
+    so `OptionQuote.dte` — and every gate derived from it — reproduces the
+    recorded value on any future day, while the OCC symbols reproduce the
+    recorded contracts exactly.
+
+    This used to anchor `expiry = date.today() + dte`, which held `dte`
+    steady but let the reconstructed expiry advance one day per calendar day.
+    From the day after the fixtures were generated, the recomputed OCC symbols
+    stopped matching the recorded ones (SPY261001C00777000 vs the recorded
+    SPY260930C00777000) and every trade scenario reported MISMATCH — on the
+    one page whose entire purpose is verification.
     """
     try:
         structure = candidate["structure"]
-        dte = int(candidate["dte"])
         legs = candidate["legs"]
     except (KeyError, TypeError, ValueError) as e:
         raise ScenarioError(f"candidate {candidate.get('id')!r} is malformed: {e}") from e
 
-    expiry = date.today() + timedelta(days=dte)
+    expiry = candidate_expiry(candidate, as_of)
 
     def by(side=None, right=None):
         return [dict(leg) for leg in legs
@@ -160,28 +233,24 @@ def rebuild_intent(candidate: dict, underlying: str, contracts: int):
                 and (right is None or leg.get("right") == right)]
 
     try:
+        def q(leg):
+            return _quote(leg, underlying, expiry, as_of)
+
         if structure == "bear_call_spread":
             (short,), (long_,) = by("sell"), by("buy")
-            return build_bear_call_spread(
-                _quote(short, underlying, expiry), _quote(long_, underlying, expiry),
-                contracts=contracts)
+            return build_bear_call_spread(q(short), q(long_), contracts=contracts)
         if structure == "bull_put_spread":
             (short,), (long_,) = by("sell"), by("buy")
-            return build_bull_put_spread(
-                _quote(short, underlying, expiry), _quote(long_, underlying, expiry),
-                contracts=contracts)
+            return build_bull_put_spread(q(short), q(long_), contracts=contracts)
         if structure == "long_straddle":
             (call,), (put,) = by(right="c"), by(right="p")
-            return build_long_straddle(
-                _quote(call, underlying, expiry), _quote(put, underlying, expiry),
-                contracts=contracts)
+            return build_long_straddle(q(call), q(put), contracts=contracts)
         if structure == "iron_condor":
             (short_put,), (long_put,) = by("sell", "p"), by("buy", "p")
             (short_call,), (long_call,) = by("sell", "c"), by("buy", "c")
-            return build_iron_condor(
-                _quote(short_put, underlying, expiry), _quote(long_put, underlying, expiry),
-                _quote(short_call, underlying, expiry), _quote(long_call, underlying, expiry),
-                contracts=contracts)
+            return build_iron_condor(q(short_put), q(long_put),
+                                     q(short_call), q(long_call),
+                                     contracts=contracts)
     except ValueError as e:  # a genuinely malformed leg set for the structure
         raise ScenarioError(f"candidate {candidate.get('id')!r} legs invalid: {e}") from e
 
@@ -234,10 +303,12 @@ def _replay_trade(name: str, fixture: dict) -> ReplayResult:
             f"{name}: chosen_id {chosen_id!r} is not among this fixture's candidates")
     chosen_cand = by_id[chosen_id]
     requested_contracts = int(fixture.get("requested_contracts", 1))
+    as_of = fixture_as_of(name, fixture)
 
     # ── stage 1: snapshot ─────────────────────────────────────
     result.trace["snapshot"] = {
         "ok": True,
+        "as_of": as_of.isoformat(),
         "underlying": underlying, "spot": spot,
         "realized_vol": market.get("realized_vol"), "atm_iv": market.get("atm_iv"),
         "candidate_count": len(candidates_list),
@@ -273,7 +344,7 @@ def _replay_trade(name: str, fixture: dict) -> ReplayResult:
             f"trader.choice_id {trader.get('choice_id')!r} != fixture chosen_id {chosen_id!r}")
 
     # ── rebuild the chosen TradeIntent via REAL candidate_builder ─
-    intent = rebuild_intent(chosen_cand, underlying, requested_contracts)
+    intent = rebuild_intent(chosen_cand, underlying, requested_contracts, as_of)
     if intent is None:
         raise ScenarioError(
             f"{name}: candidate {chosen_id!r} failed the liquidity gate on rebuild "
@@ -340,15 +411,19 @@ def _replay_trade(name: str, fixture: dict) -> ReplayResult:
     payload = None
     if verdict.is_tradeable and verdict.approved_contracts >= 1:
         approved_intent = intent if verdict.approved_contracts == intent.contracts \
-            else rebuild_intent(chosen_cand, underlying, verdict.approved_contracts)
+            else rebuild_intent(chosen_cand, underlying,
+                                verdict.approved_contracts, as_of)
         if approved_intent is None:
             raise ScenarioError(
                 f"{name}: downsized candidate failed the liquidity gate on rebuild")
         payload = build_mleg_payload(approved_intent, verdict.approved_contracts)
         order_date_raw = fixture.get("order_date")
-        if order_date_raw:
-            payload["client_order_id"] = client_order_id(
-                approved_intent, on=date.fromisoformat(order_date_raw))
+        # Always pass `on=` explicitly: `client_order_id` otherwise defaults
+        # to the UTC date of the run, which would make the id — and so the
+        # recorded payload — differ on every replay.
+        payload["client_order_id"] = client_order_id(
+            approved_intent,
+            on=date.fromisoformat(order_date_raw) if order_date_raw else as_of)
 
     result.trace["execution"] = {"reached": True, "payload": payload}
 
