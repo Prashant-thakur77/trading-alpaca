@@ -29,6 +29,7 @@ import logging
 from dataclasses import dataclass, field
 
 import analytics
+import risk_guard
 from candidate_builder import TradeIntent
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,164 @@ def _candidate_sort_key(intent: TradeIntent):
             intent.contracts)
 
 
-def _stratified_cap(ordered: list[TradeIntent], max_candidates: int) -> list[TradeIntent]:
+def _default_max_loss_cap() -> float:
+    """The guard's own max_loss_per_position, loaded from risk.yaml.
+
+    Never hardcode this number here: `risk_guard.load_risk_config()` is the
+    one source of truth the guard itself evaluates every candidate against,
+    and duplicating the figure would let the two drift apart silently.
+    """
+    return risk_guard.load_risk_config().max_loss_per_position
+
+
+def _drop_certain_denials(
+    candidates: list[TradeIntent], max_loss_cap: float
+) -> list[TradeIntent]:
+    """Drop any candidate whose OWN max_loss already exceeds the guard's cap.
+
+    Measured on a real SPY chain (2026-08-29): all 4 surfaced long_straddle
+    candidates had max_loss $1,211-$2,154 against risk.yaml's $1,000
+    max_loss_per_position — a guaranteed RiskGuard DENY at the contract count
+    they were built with. Surfacing them anyway wasted 4 of the 12 slots the
+    committee saw on trades that could never be executed, and asking an LLM
+    to reason about an uncrossable trade is pure noise.
+
+    This is a per-candidate, structure-blind filter: if it eliminates every
+    candidate of one structure type (as it did for long_straddle here), that
+    is the correct outcome for that chain/moment, not a bug to work around —
+    the stratified cap below simply gives the remaining structures the freed
+    slots (see its docstring) rather than leaving them empty or backfilling
+    with more of a structure already represented.
+    """
+    return [c for c in candidates if c.max_loss <= max_loss_cap]
+
+
+def _breakeven_cushion(intent: TradeIntent, spot: float) -> float:
+    """Distance from spot to the NEAREST breakeven, as a fraction of spot.
+
+    This is "how far the underlying has to move before this trade starts
+    losing", which is the safety axis the old ranking collapsed: taking the
+    canonical (structure, dte, strikes, ...) order from the front walks
+    strikes closest-to-the-money first, i.e. the tightest cushion first.
+    """
+    if not intent.breakevens or spot <= 0:
+        return 0.0
+    return min(abs(b - spot) for b in intent.breakevens) / spot
+
+
+def _reward_to_risk(intent: TradeIntent) -> float:
+    """Reward per dollar of risk taken: max_profit / max_loss.
+
+    `max_profit` is `float("inf")` for every long_straddle by construction
+    (unbounded upside) — every candidate of that structure carries the same
+    value, so it contributes no ranking signal within that group and
+    `_normalize` below correctly flattens it to a constant instead of
+    dividing infinities.
+    """
+    if intent.max_loss <= 0:
+        return float("inf")
+    return intent.max_profit / intent.max_loss
+
+
+def _normalize(values: dict[int, float]) -> dict[int, float]:
+    """Min-max scale a {index: value} map into [0, 1].
+
+    When every value is equal (including the all-`inf` long_straddle case,
+    since `inf == inf`) there is no ranking signal to extract, and scaling
+    would divide zero by zero — this flattens that case to a constant 0.5
+    for everyone rather than letting whichever index happens to sort first
+    win the tie-break by accident.
+    """
+    lo, hi = min(values.values()), max(values.values())
+    if lo == hi:
+        return {i: 0.5 for i in values}
+    return {i: (v - lo) / (hi - lo) for i, v in values.items()}
+
+
+def _split_evenly(items: list[int], n: int) -> list[list[int]]:
+    """Split `items` into `n` contiguous, near-equal chunks, in order.
+
+    Chunk sizes differ by at most one. Fewer than `n` items still yields `n`
+    chunks (some possibly empty) so callers can always index all `n` bands.
+    """
+    k, m = divmod(len(items), n)
+    chunks, start = [], 0
+    for i in range(n):
+        size = k + (1 if i < m else 0)
+        chunks.append(items[start:start + size])
+        start += size
+    return chunks
+
+
+def _structure_fill_order(
+    idxs: list[int], ordered: list[TradeIntent], spot: float
+) -> list[int]:
+    """The pick order for one structure's candidates: which one fills that
+    structure's 1st slot, which fills the 2nd if it gets two, and so on.
+
+    This is Part B of the ranking fix. The old code walked `idxs` in the
+    canonical (structure, dte, strikes, net_credit, contracts) order — on a
+    real SPY chain that put the 4 tightest-cushion, highest-credit
+    bear_call_spreads of 188 in the first 4 slots and nothing else was ever
+    seen, even though cushions up to 8.54% existed. Highest credit is
+    closest to spot, which is the tightest, riskiest spread — the previous
+    ranking always favoured that extreme.
+
+    The fix ranks candidates by a quality score that balances reward against
+    safety — credit relative to the risk taken (`_reward_to_risk`) combined
+    with the breakeven cushion (`_breakeven_cushion`) — and then selects
+    ACROSS that ordering instead of from its top:
+
+      1. Sort the group by cushion, tight -> wide, and split it into three
+         near-equal bands: tight / medium / wide. This is the axis that was
+         invisible before; splitting on it directly (rather than hoping a
+         combined score happens to spread it) is what actually guarantees a
+         tight, a medium and a wide candidate are all visible whenever the
+         structure has enough candidates to offer them.
+      2. Within each band, best quality_score first — so which ONE candidate
+         represents "medium cushion" is still the best trade at that risk
+         level, not an arbitrary one.
+      3. Interleave the three bands round-robin: 1st slot = tight's best,
+         2nd = medium's best, 3rd = wide's best, 4th = tight's 2nd best, ...
+
+    Interleaving matters because the stratified cap below decides how many
+    slots each structure actually gets dynamically (depending on how many
+    other structures are present and how large they are) — this module does
+    not know that count when it ranks. Interleaving means ANY prefix length
+    of the result is a spanning sample, so whatever number of slots this
+    structure ends up with, the surfaced set still spans the range rather
+    than exhausting the tight band before ever reaching medium or wide.
+
+    Deliberately not encoded here: which cushion is "correct". A 0.39%
+    cushion and a 3.9% cushion are both surfaced: which one is worth trading
+    is the committee's judgement and the guard's verdict, not this ranking's.
+    """
+    if not idxs:
+        return []
+
+    quality = _normalize({i: _reward_to_risk(ordered[i]) for i in idxs})
+    cushion = _normalize({i: _breakeven_cushion(ordered[i], spot) for i in idxs})
+    score = {i: quality[i] + cushion[i] for i in idxs}
+
+    by_cushion = sorted(
+        idxs, key=lambda i: (_breakeven_cushion(ordered[i], spot), _candidate_sort_key(ordered[i]))
+    )
+    bands = [
+        sorted(band, key=lambda i: (-score[i], _candidate_sort_key(ordered[i])))
+        for band in _split_evenly(by_cushion, 3)
+    ]
+
+    fill_order: list[int] = []
+    for round_i in range(max((len(b) for b in bands), default=0)):
+        for band in bands:
+            if round_i < len(band):
+                fill_order.append(band[round_i])
+    return fill_order
+
+
+def _stratified_cap(
+    ordered: list[TradeIntent], max_candidates: int, spot: float
+) -> list[TradeIntent]:
     """Select up to `max_candidates` from `ordered`, giving every structure
     type present a fair, round-robin share instead of a global top-N.
 
@@ -88,27 +246,25 @@ def _stratified_cap(ordered: list[TradeIntent], max_candidates: int) -> list[Tra
     bear_call_spread candidates and zero bull_put_spread or long_straddle,
     making the correct structure for the regime structurally invisible.
 
-    `ordered` is already the canonical, order-independent sort (see
-    `render_snapshot`), so grouping by structure and walking each group in
-    that order gives a `(structures, per-structure index)` selection that
-    depends only on the canonical key — never on the caller's input order.
-    Round-robin (one candidate per present structure per round, skipping any
-    structure already exhausted) ensures a structure with fewer candidates
-    than its even share is included in full rather than starving out the
-    others: it simply drops out of later rounds and its slots roll over to
-    whichever structures still have candidates left.
+    Which structures get how many slots is still decided by simple
+    round-robin over `structures` (deterministic, independent of input
+    order): a structure with fewer candidates than its even share is
+    included in full and its unused slots roll over to whichever structures
+    still have candidates left. WHICH candidates of a structure fill its
+    slots is decided by `_structure_fill_order` (Part B of the ranking fix,
+    see its docstring) instead of the plain canonical order.
 
     The selection is returned in the original canonical order (structure,
-    dte, strikes, net_credit, contracts) — i.e. the existing sort remains
-    both the within-structure ordering and, for the surfaced subset, the
-    final rendering order. When nothing needs to be dropped (total fits
-    within `max_candidates`) this is byte-identical to the previous
-    behaviour of taking `ordered[:max_candidates]` in full.
+    dte, strikes, net_credit, contracts) regardless of pick order — i.e. the
+    canonical sort remains the final RENDERING order; `_structure_fill_order`
+    only changes which candidates are chosen, never how the chosen ones are
+    displayed.
     """
     groups: dict[str, list[int]] = {}
     for idx, intent in enumerate(ordered):
         groups.setdefault(intent.structure, []).append(idx)
     structures = sorted(groups)  # deterministic, independent of input order
+    fill_orders = {s: _structure_fill_order(idxs, ordered, spot) for s, idxs in groups.items()}
     pointers = {s: 0 for s in structures}
 
     selected_idx: list[int] = []
@@ -118,9 +274,9 @@ def _stratified_cap(ordered: list[TradeIntent], max_candidates: int) -> list[Tra
             if len(selected_idx) >= max_candidates:
                 break
             p = pointers[s]
-            idxs = groups[s]
-            if p < len(idxs):
-                selected_idx.append(idxs[p])
+            order = fill_orders[s]
+            if p < len(order):
+                selected_idx.append(order[p])
                 pointers[s] = p + 1
                 progressed = True
         if not progressed:
@@ -254,16 +410,31 @@ def render_snapshot(
     candidates: list[TradeIntent],
     max_candidates: int = 12,
     atm_iv: float | None = ATM_IV_NOT_SUPPLIED,
+    max_loss_cap: float | None = None,
 ) -> Snapshot:
     """Render one deterministic `Snapshot` for the given cycle inputs.
 
-    Candidates are sorted by a canonical key (structure, dte, strikes, net
-    credit, contracts) before ids c1..cN are assigned. The list is then
-    capped at `max_candidates` via a stratified, round-robin selection across
-    the structure types actually present (see `_stratified_cap`) — not a
-    global top-N — so every available structure type is represented in what
-    the committee sees, and the selection is reproducible regardless of the
-    order the caller's candidate list happened to be built in.
+    Before anything else, any candidate whose own max_loss already exceeds
+    `max_loss_cap` is dropped (`_drop_certain_denials`) — RiskGuard would
+    DENY it on that basis alone, at the contract count it was built with, so
+    surfacing it only wastes one of the committee's limited slots on a trade
+    that can never be executed. `max_loss_cap` defaults to
+    `risk_guard.load_risk_config().max_loss_per_position` — the SAME number
+    the guard itself enforces — rather than a hardcoded figure that could
+    drift from it; pass an explicit value to pin it (tests do this to stay
+    independent of risk.yaml's current contents).
+
+    The surviving candidates are sorted by a canonical key (structure, dte,
+    strikes, net credit, contracts) before ids c1..cN are assigned. The list
+    is then capped at `max_candidates` via a stratified selection across the
+    structure types actually present (see `_stratified_cap`) — not a global
+    top-N — so every available structure type is represented, and within
+    each structure the surfaced set spans tight/medium/wide breakeven
+    cushions rather than clustering at one extreme (see
+    `_structure_fill_order`). Both steps are pure functions of the canonical
+    sort, which is itself independent of input order, so the whole selection
+    is reproducible regardless of the order the caller's candidate list
+    happened to be built in.
 
     `atm_iv` is the ATM implied vol the header reports and compares against
     `realized_vol` — the analysts' primary vol-regime signal. It MUST be a
@@ -279,9 +450,12 @@ def render_snapshot(
     Returns both the text the analysts see and the id -> TradeIntent mapping
     that names what each id actually is (see `Snapshot`).
     """
-    ordered = sorted(candidates, key=_candidate_sort_key)
+    if max_loss_cap is None:
+        max_loss_cap = _default_max_loss_cap()
+    eligible = _drop_certain_denials(candidates, max_loss_cap)
+    ordered = sorted(eligible, key=_candidate_sort_key)
     total = len(ordered)
-    capped = _stratified_cap(ordered, max_candidates)
+    capped = _stratified_cap(ordered, max_candidates, spot)
     by_id = {f"c{i}": intent for i, intent in enumerate(capped, start=1)}
 
     if atm_iv is ATM_IV_NOT_SUPPLIED:

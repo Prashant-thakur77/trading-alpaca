@@ -218,10 +218,18 @@ def test_ties_on_every_other_field_are_broken_by_contract_count():
     # apart from size are NOT interchangeable; leaving contracts out of the
     # sort key let their order fall back to input order, falsifying the
     # module's determinism claim.
+    #
+    # NOTE: sized at contracts=2 (max_loss $800), not the original 3 (would be
+    # $1200): the ranking fix (see the "guard-certain-denial" tests below)
+    # now drops any candidate whose own max_loss exceeds risk.yaml's
+    # max_loss_per_position ($1000) before ranking even runs. At contracts=3
+    # `three` would be silently filtered out of both renders, leaving only
+    # `one` in each — the assertions below would still pass, but on a single
+    # surviving candidate, no longer exercising a real tie at all.
     from dataclasses import replace
     one = _bull_put(495, 490)
-    three = replace(one, contracts=3, max_loss=one.max_loss * 3,
-                    max_profit=one.max_profit * 3)
+    three = replace(one, contracts=2, max_loss=one.max_loss * 2,
+                    max_profit=one.max_profit * 2)
     a = render_snapshot("SPY", 500.0, 0.18, [one, three])
     b = render_snapshot("SPY", 500.0, 0.18, [three, one])
     assert a.text == b.text
@@ -422,3 +430,144 @@ def test_shuffling_candidates_does_not_change_the_atm_iv_line_when_supplied():
     baseline = render_snapshot("SPY", 500.0, 0.18, candidates, atm_iv=0.30)
     shuffled = render_snapshot("SPY", 500.0, 0.18, list(reversed(candidates)), atm_iv=0.30)
     assert baseline.text == shuffled.text
+
+
+# ---- the ranking fix: never surface a certain denial, and span the range --
+#
+# Measured on a real SPY chain (2026-08-29, spot 769.35): the stratified cap
+# above gave every structure a fair share of SLOTS, but within each structure
+# it filled those slots by walking the canonical (structure, dte, strikes,
+# credit, contracts) order from the front -- which, on a real chain, is one
+# extreme of the distribution. The 4 surfaced bear_call_spreads were the FOUR
+# TIGHTEST of 188 available (cushion 0.39%-0.91%, when cushions up to 8.54%
+# existed); the 4 straddles all had max_loss ($1,211-$2,154) already over
+# risk.yaml's $1,000 max_loss_per_position, i.e. a guaranteed DENY that could
+# never be executed. The committee was shown a menu where every dish was
+# either untradeable or a bad trade, and abstained -- correctly, given what it
+# was shown. These tests pin the fix: (A) drop certain denials before ranking
+# even starts, and (B) rank+select so the surfaced set of each structure
+# spans the available range instead of clustering at one extreme.
+
+from dataclasses import replace as _replace
+
+
+def _bear_call_range(n, spot=500.0, width=5.0):
+    """`n` bear call spreads at increasing distance from `spot`, with credit
+    that DECAYS as distance grows -- mirroring the real chain: the tightest
+    (closest-to-money) strike carries the most credit, and credit falls off
+    as the short strike moves further out of the money. This makes "highest
+    credit" and "tightest cushion" the same four candidates, exactly the
+    correlation that made the old top-N-by-credit selection pathological.
+    """
+    out = []
+    for i in range(n):
+        short_strike = spot + 1 + 2 * i
+        long_strike = short_strike + width
+        credit = max(0.5, 3.0 - 0.15 * i)
+        short = OptionQuote(
+            symbol=f"SPYC{i}S", underlying="SPY", strike=short_strike, expiry=EXPIRY,
+            right="c", bid=credit * 0.97, ask=credit * 1.03, open_interest=500,
+        )
+        long = OptionQuote(
+            symbol=f"SPYC{i}L", underlying="SPY", strike=long_strike, expiry=EXPIRY,
+            right="c", bid=0.097, ask=0.103, open_interest=500,
+        )
+        intent = build_bear_call_spread(short, long)
+        assert intent is not None
+        out.append(intent)
+    return out
+
+
+def _top_n_by_credit(candidates, n):
+    """The OLD behaviour this fix replaces: highest net_credit first."""
+    return sorted(candidates, key=lambda c: c.net_credit, reverse=True)[:n]
+
+
+def _cushion_of(intent, spot):
+    return min(abs(b - spot) for b in intent.breakevens) / spot
+
+
+def test_a_candidate_whose_max_loss_exceeds_the_cap_is_never_surfaced():
+    from dataclasses import replace
+    one = _bull_put(495, 490)                       # max_loss = $400
+    denied = replace(one, contracts=3, max_loss=1500.0, max_profit=300.0)
+    s = render_snapshot("SPY", 500.0, 0.18, [one, denied], max_loss_cap=1000.0)
+    assert denied not in s.candidates.values()
+    assert one in s.candidates.values()
+    assert "1500.00" not in s.text
+
+
+def test_eliminating_a_whole_structure_lets_the_rest_fill_the_cap():
+    # All 4 straddles exceed the cap; the 10+10 verticals do not. The cap
+    # (8) must still be fully filled by the surviving two structures, split
+    # fairly between them -- not left at 4 (verticals-only fair share) plus 4
+    # empty slots, and not backfilled with more of a structure already
+    # present beyond its fair round-robin share.
+    straddles = [_replace(_straddle(500 + 5 * i), contracts=3, max_loss=3600.0)
+                 for i in range(4)]
+    candidates = _many_bull_puts(10) + _many_bear_calls(10) + straddles
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=8,
+                        max_loss_cap=1000.0)
+    structures = {i.structure for i in s.candidates.values()}
+    assert structures == {"bull_put_spread", "bear_call_spread"}
+    assert len(s.candidates) == 8
+    counts = {}
+    for i in s.candidates.values():
+        counts[i.structure] = counts.get(i.structure, 0) + 1
+    assert counts == {"bull_put_spread": 4, "bear_call_spread": 4}
+
+
+def test_default_max_loss_cap_comes_from_risk_yaml_not_a_hardcoded_number():
+    import risk_guard
+    real_cap = risk_guard.load_risk_config().max_loss_per_position
+    one = _bull_put(495, 490)
+    denied = _replace(one, contracts=3, max_loss=real_cap + 1.0, max_profit=1.0)
+    s = render_snapshot("SPY", 500.0, 0.18, [one, denied])  # no max_loss_cap passed
+    assert denied not in s.candidates.values()
+    assert one in s.candidates.values()
+
+
+def test_surfaced_cushions_span_a_wider_range_than_top_n_by_credit_would():
+    # 20 bear call spreads, tightest to widest. The OLD ranking (top-N by
+    # canonical order, which on a real chain runs tightest-first) and a
+    # literal top-N-by-credit are the same pathological menu here, since
+    # credit decays monotonically with distance from spot. The fix must
+    # surface a set whose cushions actually spread out.
+    candidates = _bear_call_range(20)
+    s = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=4,
+                        max_loss_cap=1000.0)
+    assert len(s.candidates) == 4
+
+    surfaced_cushions = [_cushion_of(i, 500.0) for i in s.candidates.values()]
+    old_menu = _top_n_by_credit(candidates, 4)
+    old_cushions = [_cushion_of(i, 500.0) for i in old_menu]
+
+    surfaced_spread = max(surfaced_cushions) - min(surfaced_cushions)
+    old_spread = max(old_cushions) - min(old_cushions)
+    all_cushions = [_cushion_of(i, 500.0) for i in candidates]
+    full_range = max(all_cushions) - min(all_cushions)
+
+    # The old menu is the four tightest by construction (credit decays
+    # monotonically with distance) -- its cushions barely spread at all
+    # relative to what is actually available.
+    assert old_spread < full_range * 0.2
+    # The new menu must span materially more of the available range.
+    assert surfaced_spread > old_spread * 3
+    assert surfaced_spread > full_range * 0.5
+
+
+def test_ranking_fix_selection_stays_deterministic_and_order_independent():
+    candidates = _bear_call_range(20)
+    baseline = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=4,
+                               max_loss_cap=1000.0)
+    import random
+    shuffled_input = list(candidates)
+    random.Random(7).shuffle(shuffled_input)
+    shuffled = render_snapshot("SPY", 500.0, 0.18, shuffled_input, max_candidates=4,
+                               max_loss_cap=1000.0)
+    assert shuffled.text == baseline.text
+    assert shuffled.candidates == baseline.candidates
+
+    again = render_snapshot("SPY", 500.0, 0.18, candidates, max_candidates=4,
+                            max_loss_cap=1000.0)
+    assert again.text == baseline.text
