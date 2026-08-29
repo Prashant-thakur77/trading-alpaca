@@ -60,6 +60,41 @@ def test_long_straddle_is_near_delta_neutral():
     assert ok is True
 
 
+def test_neutral_thesis_verdict_is_invariant_to_contract_count():
+    # position_greeks scales by contracts, so a fixed 15-delta band vetoed the
+    # SAME structure with the SAME thesis purely for being bigger (measured:
+    # 1 contract +11.30 passes, 2 -> +22.59 vetoed, 3 -> +33.89 vetoed) —
+    # before RiskGuard, whose job it is to downsize, ever saw it.
+    verdicts = []
+    for contracts in (1, 2, 3):
+        intent = build_long_straddle(
+            _q(500, "c", 5.90, 6.10), _q(500, "p", 5.85, 6.05), contracts=contracts
+        )
+        assert intent is not None and intent.contracts == contracts
+        ok, reason = thesis_check(intent, SPOT)
+        verdicts.append(ok)
+    assert len(set(verdicts)) == 1, f"size changed the verdict: {verdicts}"
+    assert verdicts[0] is True
+
+
+def test_neutral_band_still_rejects_a_directional_position_at_any_size():
+    # Size-invariance must not become "anything passes": a structure whose
+    # per-contract delta is far outside the band still fails at every size.
+    deep_itm_call = _q(450, "c", 52.00, 52.20)
+    for contracts in (1, 2, 3):
+        # a long deep-ITM call is ~+90 delta per contract — nothing like
+        # neutral at any size
+        directional = TradeIntent(
+            underlying="SPY", structure="iron_condor",
+            legs=(Leg(deep_itm_call, "buy", contracts),),
+            contracts=contracts, net_credit=-52.10,
+            max_loss=5210.0 * contracts, max_profit=float("inf"),
+            breakevens=(502.10,), dte=30,
+        )
+        ok, reason = thesis_check(directional, SPOT)
+        assert ok is False, (contracts, reason)
+
+
 def test_directionally_inconsistent_structure_fails():
     # A bear call spread (bearish) plumbed in as if it were a bullish thesis
     # by mislabeling the structure would be a real bug; simulate a corrupted
@@ -169,17 +204,37 @@ def test_blind_review_non_dict_parsed_payloads_veto_rather_than_raise():
         assert reason
 
 
-def test_blind_review_prompt_never_includes_committee_reasoning():
-    # blind_review must be starved of the committee's own reasoning — it only
-    # sees the candidate and price context, never analyst/trader reasoning
-    # text, so the two Claude calls are decorrelated rather than a rubber
-    # stamp of each other.
+def test_blind_review_prompt_contains_exactly_the_intent_derived_fields():
+    # blind_review is decorrelated by CONSTRUCTION: its signature admits no
+    # channel through which committee reasoning could arrive (intent, spot,
+    # realized_vol, client — nothing else). Asserting that some analyst
+    # sentence is absent is therefore tautological; the meaningful assertion
+    # is positive — the prompt is built from the intent and price context and
+    # nothing else, so this test fails the moment a reasoning/debate/views
+    # parameter is threaded in.
+    import inspect
+    from committee.veto import blind_review as _br
+    params = set(inspect.signature(_br).parameters)
+    assert params == {"intent", "spot", "realized_vol", "client"}
+
     captured = {}
 
     def fake_client(prompt):
         captured["prompt"] = prompt
         return _ok_response({"agree": True, "reasoning": "ok"})
 
-    blind_review(_intent(), SPOT, 0.18, client=fake_client)
-    assert "IV rich" not in captured["prompt"]
-    assert "committee" not in captured["prompt"].lower()
+    intent = _intent()
+    blind_review(intent, SPOT, 0.18, client=fake_client)
+    prompt = captured["prompt"]
+
+    assert f"UNDERLYING: {intent.underlying}" in prompt
+    assert f"SPOT: {SPOT:.2f}" in prompt
+    assert "REALIZED_VOL: 18.00%" in prompt
+    assert f"STRUCTURE: {intent.structure}" in prompt
+    assert f"DTE: {intent.dte}" in prompt
+    assert f"NET_CREDIT: {intent.net_credit:.2f}" in prompt
+    assert f"MAX_LOSS: {intent.max_loss:.2f}" in prompt
+    for leg in intent.legs:
+        assert f"{leg.side} {leg.quote.strike:.2f}{leg.quote.right}" in prompt
+    for b in intent.breakevens:
+        assert f"{b:.2f}" in prompt

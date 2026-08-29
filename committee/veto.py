@@ -27,10 +27,13 @@ import analytics
 from candidate_builder import TradeIntent
 from llm.client import call_claude
 
-# Position-delta units (per-share delta * 100 * contracts, RiskGuard's own
-# convention). Half of risk.yaml's |net delta| <= 30 limit — comfortably
-# inside "clearly directional" while still admitting the small residual
-# delta a real neutral structure carries away from a round strike.
+# Position-delta units PER CONTRACT (per-share delta * 100, RiskGuard's own
+# convention divided by the contract count). Half of risk.yaml's
+# |net delta| <= 30 limit — comfortably inside "clearly directional" while
+# still admitting the small residual delta a real neutral structure carries
+# away from a round strike. A heuristic, deliberately: it exists to catch a
+# mislabelled structure, not to size a position — that is RiskGuard's job,
+# which is why the band scales with `intent.contracts` (see thesis_check).
 NEUTRAL_DELTA_THRESHOLD = 15.0
 
 _NEUTRAL_STRUCTURES = {"long_straddle", "iron_condor"}
@@ -87,11 +90,21 @@ def thesis_check(intent: TradeIntent, spot: float) -> tuple[bool, str]:
         )
 
     if structure in _NEUTRAL_STRUCTURES:
-        ok = abs(net_delta) <= NEUTRAL_DELTA_THRESHOLD
+        # The band scales with size because `position_greeks` does. This test
+        # asks "is this structure directional?", which is a property of the
+        # structure, not of how many of it we buy — an unscaled band vetoed
+        # the same trade with the same thesis purely for being bigger
+        # (measured on one straddle: 1 contract +11.30 passes, 2 -> +22.59
+        # vetoed, 3 -> +33.89 vetoed), pre-empting RiskGuard, which is the
+        # layer that owns sizing and can downsize rather than refuse.
+        band = NEUTRAL_DELTA_THRESHOLD * max(intent.contracts, 1)
+        ok = abs(net_delta) <= band
         return ok, (
-            f"net delta {net_delta:.2f} within neutral band (+/-{NEUTRAL_DELTA_THRESHOLD})"
+            f"net delta {net_delta:.2f} within neutral band (+/-{band:.2f} "
+            f"= {NEUTRAL_DELTA_THRESHOLD} x {intent.contracts} contract(s))"
             if ok else
-            f"{structure} expected near delta-neutral; measured {net_delta:.2f}"
+            f"{structure} expected near delta-neutral; measured {net_delta:.2f} "
+            f"against band +/-{band:.2f}"
         )
 
     return False, f"unknown structure {structure!r} — failing closed"
