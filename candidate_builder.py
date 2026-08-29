@@ -47,6 +47,16 @@ class OptionQuote:
     bid: float
     ask: float
     open_interest: int
+    # The date this quote was observed. `None` means "now", which is the only
+    # correct answer for a live chain fetch and stays the default so no live
+    # call site changes. A HISTORICAL quote (scripts/seed_calibration.py
+    # replays past decision dates) must carry the date it was observed on,
+    # because every DTE-dependent gate below — the 7-45 DTE window, the IV
+    # solve, the pre-mortem's 3-DTE exit — is derived from `dte`, and
+    # measuring a June expiry against today's calendar would make every
+    # replayed candidate fail the gate for a reason that has nothing to do
+    # with the market on the day it is replaying.
+    as_of: date | None = None
 
     @property
     def mid(self) -> float:
@@ -62,7 +72,7 @@ class OptionQuote:
 
     @property
     def dte(self) -> int:
-        return (self.expiry - date.today()).days
+        return (self.expiry - (self.as_of or date.today())).days
 
 
 @dataclass(frozen=True)

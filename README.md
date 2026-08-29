@@ -9,6 +9,24 @@ Built for the [Alpaca AI Trading Agents Hackathon](https://lablab.ai/event/alpac
 **🌐 [Live site](https://trading-alpaca-judge.vercel.app)** · **[🛡️ Judge desk — replay four real decisions](https://trading-alpaca-judge.vercel.app/judge)**
 no credentials, no API keys, no model calls. Two of the four are refusals.
 
+
+![The desk](docs/assets/01-hero.png)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/07-judge-allow.png" alt="Judge desk, an approved decision"><br>
+<sub><b>Judge desk.</b> Every stage of a real decision, replayable with no credentials.</sub></td>
+<td width="50%"><img src="docs/assets/08-judge-failclosed.png" alt="Judge desk, a refusal"><br>
+<sub><b>A refusal.</b> Two of the four scenarios are refusals, deliberately.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/assets/03-desk.png" alt="The committee"><br>
+<sub><b>The committee.</b> Quotes are verbatim recorded model output.</sub></td>
+<td><img src="docs/assets/06-limits.png" alt="What we cannot prove"><br>
+<sub><b>Where the audit trail stops.</b> Stated, not omitted.</sub></td>
+</tr>
+</table>
+
 Most trading agents ask a language model *"what should I buy?"* and act on the
 answer. That is fast to build and impossible to trust: the model can hallucinate
 a strike, size a position wrongly, or be confidently wrong with no record of why.

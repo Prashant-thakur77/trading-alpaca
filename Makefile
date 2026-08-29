@@ -1,4 +1,4 @@
-.PHONY: site help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration judge judge-page clean
+.PHONY: site help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration seed-calibration judge judge-page clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
@@ -15,6 +15,7 @@ help: ## Show available commands
 	@echo "  make verify       Verify Merkle integrity of validation artifacts"
 	@echo "  make verify-journal  Verify hash chain of the decision journal"
 	@echo "  make calibration  Per-analyst Brier calibration report"
+	@echo "  make seed-calibration  Replay the committee over post-cutoff history"
 	@echo "  make check-account   Verify Alpaca paper account is set up correctly"
 	@echo "  make walkforward  Run walk-forward OOS validation (needs Alpaca keys)"
 	@echo "  make session-dry  Run one session cycle, no order sent"
@@ -74,6 +75,17 @@ verify-journal:
 
 calibration:
 	python3 scripts/calibration_report.py
+
+# Replay the REAL committee over REAL post-knowledge-cutoff market data so the
+# calibration loop has resolved outcomes to score. Writes a SEPARATE journal
+# (logs/seed_journal.jsonl): the live journal records real broker interaction
+# and is a judged artifact, so replayed history never touches it. The window
+# starts on 2026-06-01 because the model's knowledge cutoff is May 2026 — see
+# seed_replay.KNOWLEDGE_CUTOFF and docs/calibration_seeding.md.
+seed-calibration:
+	python3 scripts/seed_calibration.py --symbol SPY --start 2026-06-01 \
+		--end 2026-08-07 --spacing 1 --max-windows 50
+	python3 scripts/calibration_report.py --journal logs/seed_journal.jsonl
 
 session-dry:
 	python3 scripts/run_session.py --dry-run

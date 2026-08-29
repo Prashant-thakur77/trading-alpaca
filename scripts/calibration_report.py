@@ -9,7 +9,14 @@ by omission: when nothing has resolved yet, it says that in plain language
 instead of printing zeros a reader could mistake for a score of 0.
 
 Usage:
-    python3 scripts/calibration_report.py [journal_path]
+    python3 scripts/calibration_report.py [--journal PATH]
+    python3 scripts/calibration_report.py [journal_path]     # legacy form
+
+`--journal` exists so the seeded journal written by
+`scripts/seed_calibration.py` (logs/seed_journal.jsonl by default) can be
+reported on without pointing at, or contaminating, the live
+logs/journal.jsonl — which is a judged artifact recording real broker
+interaction and must stay free of replayed history.
 """
 import sys
 from pathlib import Path
@@ -89,8 +96,22 @@ def render(journal, roles=ROLES, min_predictions: int = DEFAULT_MIN_PREDICTIONS)
     return "\n".join(lines)
 
 
-def main(journal_path=None) -> int:
-    path = Path(journal_path) if journal_path else DEFAULT_JOURNAL_PATH
+def parse_args(argv) -> Path:
+    """The journal path to report on. `--journal PATH`, `--journal=PATH`, or a
+    bare positional path (the original interface, kept working so existing
+    Makefile targets and docs do not silently change meaning)."""
+    argv = list(argv or [])
+    for i, arg in enumerate(argv):
+        if arg == "--journal" and i + 1 < len(argv):
+            return Path(argv[i + 1])
+        if arg.startswith("--journal="):
+            return Path(arg.split("=", 1)[1])
+    positional = [a for a in argv if not a.startswith("-")]
+    return Path(positional[0]) if positional else DEFAULT_JOURNAL_PATH
+
+
+def main(argv=None) -> int:
+    path = parse_args(argv if argv is not None else sys.argv[1:])
     journal = Journal(path)
     print(f"Calibration report — {path}\n")
     print(render(journal))
@@ -98,4 +119,4 @@ def main(journal_path=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else None))
+    sys.exit(main())

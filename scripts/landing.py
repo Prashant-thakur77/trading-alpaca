@@ -329,7 +329,7 @@ def build() -> str:
       <button aria-expanded="{'true' if i == 1 else 'false'}">
         <span class="n">( {i:02d} )</span>
         <span><h3>{t}</h3><div class="lead">{lead}</div></span>
-        <span class="tgl">+</span></button>
+        <span class="tgl">{"( - )" if i == 1 else "( + )"}</span></button>
       <div class="body"><div><div class="inner">
         <p>{body}</p>
         <div class="stat">{''.join(f'<div><div class="v">{v}</div><div class="k">{k}</div></div>' for v, k in stats)}</div>

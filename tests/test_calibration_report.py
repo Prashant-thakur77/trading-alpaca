@@ -7,6 +7,7 @@ imply live decisions are being influenced when they are not.
 """
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
@@ -16,6 +17,7 @@ import pytest
 from calibration import DEFAULT_MIN_PREDICTIONS
 from journal import Journal
 
+import calibration_report
 from calibration_report import ROLES, render
 
 
@@ -99,3 +101,38 @@ def test_report_shows_a_brier_score_once_predictions_resolve(jrnl):
         _seed_resolved_cycle(jrnl, ROLES[0], 1.0 if outcome else 0.0, outcome, f"s{i}" * 8)
     report = render(jrnl)
     assert "0.000" in report  # perfectly calibrated in this synthetic case
+
+
+# ── --journal, so a seeded journal can be reported on without touching the
+# live one (scripts/seed_calibration.py writes logs/seed_journal.jsonl) ──
+
+def test_parse_args_defaults_to_the_live_journal():
+    assert calibration_report.parse_args([]) == calibration_report.DEFAULT_JOURNAL_PATH
+
+
+def test_parse_args_accepts_the_flag_form():
+    got = calibration_report.parse_args(["--journal", "logs/seed_journal.jsonl"])
+    assert got == Path("logs/seed_journal.jsonl")
+
+
+def test_parse_args_accepts_the_equals_form():
+    got = calibration_report.parse_args(["--journal=logs/seed_journal.jsonl"])
+    assert got == Path("logs/seed_journal.jsonl")
+
+
+def test_parse_args_still_accepts_the_legacy_positional_path():
+    got = calibration_report.parse_args(["logs/seed_journal.jsonl"])
+    assert got == Path("logs/seed_journal.jsonl")
+
+
+def test_main_reports_on_the_journal_it_was_given(tmp_path, capsys):
+    path = tmp_path / "seed.jsonl"
+    j = Journal(path)
+    for i in range(10):
+        j.append("analyst_view", {"role": "vol_analyst", "probability": 0.9,
+                                  "snapshot_hash": f"h{i}"})
+        j.append("close", {"realized_pnl": 10.0, "snapshot_hash": f"h{i}"})
+    assert calibration_report.main(["--journal", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert str(path) in out
+    assert "10" in out
