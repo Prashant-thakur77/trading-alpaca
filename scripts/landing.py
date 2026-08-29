@@ -22,8 +22,9 @@ from fx import TOKENS, FX_CSS, FX_JS, INTRO_HTML
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "https://github.com/Prashant-thakur77/trading-alpaca"
 
-NAV = [("The inversion", "#inversion"), ("Pipeline", "#pipeline"),
-       ("The desk", "#desk"), ("Evidence", "#evidence"), ("Replay", "/judge")]
+NAV = [("Pipeline", "#pipeline"), ("The desk", "#desk"),
+       ("Contamination", "#contamination"), ("Evidence", "#evidence"),
+       ("Limits", "#limits"), ("Replay", "/judge")]
 
 # Four stages. Expandable, in the manner of a case-study card.
 PIPELINE = [
@@ -376,12 +377,14 @@ def build() -> str:
   <div class="veil"></div>
   <div class="wrap in"><div class="row"><div>
     <p class="tag" data-mono>Alpaca AI Trading Agents · Options Alpha</p>
-    <h1 class="st" data-split>The model can refuse. It cannot invent.</h1>
+    <h1 class="st" data-split>The desk that grades itself.</h1>
     <div class="cta"><a class="btn fill" data-magnetic href="/judge">Replay a real decision ↗</a>
       <a class="btn" data-magnetic href="{REPO}">Read the code ↗</a></div>
-  </div><div><p class="sub">Deterministic Python builds every candidate before a model sees
-  anything. Every strike, leg and limit price is fully specified. The committee may pick
-  <b>one by id, or refuse</b>. It cannot invent a strike, because no code path allows it.</p></div></div></div>
+  </div><div><p class="sub">Every analyst carries a track record. Each one states a
+  <b>probability</b>, not a verdict, and is Brier-scored against what actually happened.
+  An analyst that is confidently wrong <b>loses its vote</b>. The trades themselves are
+  built by deterministic code, so the models choose between them or refuse, and can
+  never invent one.</p></div></div></div>
 </section>
 
 <div class="facts">{facts}</div>
@@ -418,6 +421,26 @@ def build() -> str:
     reason a committee is not a rubber stamp.</p>
 </div></section>
 
+<section class="pad" id="contamination"><div class="wrap"><div class="ed">
+  <div><p class="tag">The question this literature keeps failing</p>
+    <h2 class="st rv" style="margin-top:22px">Is it reasoning, or is it
+      remembering?</h2></div>
+  <p class="note rv">The standing criticism of LLM trading agents is
+    <b>knowledge contamination</b>. Papers such as TradingAgents (arXiv 2412.20138)
+    and FinMem (arXiv 2311.13743) backtest models over dates that sit inside their own
+    training data, so a good result may be recall wearing the costume of analysis.
+    Reviewers flag Sharpe ratios above the plausible empirical range for exactly this
+    reason.<br><br>
+    Our position is checkable. The model's knowledge cutoff is <b>May 2026</b>. Every
+    live committee decision runs on <b>August 2026</b> market data: prices, chains and a
+    volatility regime that post-date the training corpus. A decision here cannot be
+    memorised, because there was nothing to memorise.<br><br>
+    The converse, stated plainly: the walk-forward harness below spans 720 days that
+    partly predate the cutoff. That is acceptable only because <b>it runs no model at
+    all</b>. It is a deterministic proxy, measured in code. We would not put an LLM
+    over those dates and call the result evidence.</p>
+</div></div></section>
+
 <section class="pad" id="evidence"><div class="wrap">
   <p class="tag">Out-of-sample, computed from real bars</p>
   <h2 class="st rv" style="font-size:clamp(27px,3.8vw,48px);margin-top:22px;max-width:19ch">
@@ -443,6 +466,34 @@ def build() -> str:
     <div><h2>Check it yourself</h2><p class="s">Clone it and run the verifier offline with
       the environment stripped. It reproduces the same verdicts.</p></div>
     <a class="btn ghost" href="{REPO}">View on GitHub</a></div>
+</div></section>
+
+<section class="pad" id="limits"><div class="wrap">
+  <p class="tag">Where the audit trail stops</p>
+  <h2 class="st rv" style="font-size:clamp(27px,3.8vw,48px);margin-top:22px;max-width:20ch">
+    What we cannot prove.</h2>
+  <div class="checks rv" style="margin-top:40px">
+    <div><div class="c" style="color:var(--coral)">No fill quality evidence</div>
+      <div class="d">Paper trading only. We have no slippage data, no partial-fill
+        behaviour under stress, and no evidence about what a real counterparty would
+        do with these orders.</div></div>
+    <div><div class="c" style="color:var(--coral)">No claim of edge</div>
+      <div class="d">Thirty out-of-sample trades across four symbols. That is a
+        measurement harness proving the engine reports honestly, not a demonstration
+        that the strategy makes money.</div></div>
+    <div><div class="c" style="color:var(--coral)">Calibration is mostly dormant</div>
+      <div class="d">The loop is wired and proven end to end in tests, but few live
+        trades have closed, so most analyst weights are still 1.0. Demoting an analyst
+        on a handful of outcomes is the error we refuse to make.</div></div>
+    <div><div class="c" style="color:var(--coral)">One scenario is constructed</div>
+      <div class="d">The fail-closed replay was produced by injecting a data outage
+        into the real entrypoint. No live cycle has hit one yet, and the fixture says
+        so in its own provenance field.</div></div>
+  </div>
+  <div class="caveat rv">The most famous track record in this industry, Medallion's, is
+    known through a journalist's interviews rather than an audit. What keeps it credible
+    is that the book says plainly where the evidence stops. This section is that
+    sentence for us.</div>
 </div></section>
 
 <footer><div class="wrap"><p class="tag">What this does not claim</p>

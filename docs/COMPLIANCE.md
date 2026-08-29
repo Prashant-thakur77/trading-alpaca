@@ -63,7 +63,7 @@ Ran the server's help directly against PyPI (no local checkout involved):
     alpaca-mcp-server, version 2.3.0
 
 Toolset membership was confirmed by reading the installed package's
-`toolsets.py` (via `uv`'s cache, resolved from the same PyPI release): the
+`the alpaca-mcp-server package's toolset registration` (via `uv`'s cache, resolved from the same PyPI release): the
 `account` toolset covers only `getAccount`/`getAccountConfig`/portfolio
 history/activities; `stock-data` and `options-data` cover only market-data
 reads. Order placement and position management live exclusively in the
