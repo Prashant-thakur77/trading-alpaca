@@ -71,3 +71,33 @@ separate `trading` toolset, which `.mcp.json`'s `ALPACA_TOOLSETS` value
 (`account,options-data,stock-data`) does not include — so an MCP client
 configured from this repo's `.mcp.json` has no tool capable of submitting,
 modifying, or cancelling an order.
+
+## MCP server — observed live in a client session (2026-08-29)
+
+The official `alpaca-mcp-server` was connected to a real Claude Code session
+and the exposed tool surface observed directly, rather than inferred from the
+package source.
+
+Tools present: `get_account_info`, `get_account_config`,
+`get_account_activities`, `get_option_chain`, `get_option_snapshot`,
+`get_option_latest_quote`, `get_option_latest_trade`, `get_option_bars`,
+`get_option_trades`, `get_stock_bars`, `get_stock_snapshot`,
+`get_stock_quotes`, `get_stock_trades`, `get_portfolio_history`,
+`get_market_movers`, `get_most_active_stocks`, plus API/doc search.
+
+Tools ABSENT: `place_stock_order`, `place_option_order`, `close_position`,
+and every other order-placement or position-mutating tool.
+
+This is the claim in README and `.mcp.json` — "no trading toolset is exposed
+over MCP, so an LLM cannot place an order through it even in principle" —
+verified by observation of the running server, not by reading its code.
+
+Note on credentials: `.mcp.json` passes `${ALPACA_API_KEY}` / `${ALPACA_SECRET_KEY}`,
+which resolve from the environment of the shell that launches the client. Start
+the session with the keys exported, e.g.
+
+    set -a; . ./.env; set +a && claude
+
+Without that the server connects but every call returns HTTP 401. That failure
+mode is the correct one: unauthenticated means no data, never stale or invented
+data.
