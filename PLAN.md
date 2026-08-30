@@ -134,7 +134,16 @@ Leaving them costs a crypto TA engine sitting in an options agent's repo, and
 38 of the tests exercise it rather than the product. Removing them contradicts
 an explicit CLAUDE.md instruction and drops the suite 938 → 900.
 
-DEFERRED, needs an explicit decision — not to be actioned unilaterally.
+DECIDED 2026-08-30: remove them. The user approved after the trade was put to
+them explicitly. The deletions are blocked by a tooling permission rule, not by
+any remaining question, so this is execution pending, not an open decision.
+
+    git rm agent_signals.py ai_backends.py ai_prompts.py chart_analyzer.py \
+           config.py indicators.py opus_analyst.py risk_manager.py \
+           strategies.py tests/test_core.py
+
+Afterwards: rerun `make test` (expect 900), rebuild the deck and one-pager so
+their test count is not stale, and confirm the make chain is still green.
 
 ## Carried
 - [ ] Run `make walkforward` against live Alpaca data (engine + tests done)

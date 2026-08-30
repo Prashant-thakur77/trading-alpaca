@@ -33,16 +33,33 @@ engine. Its "OOS 82.2% / PF 3.79 / 366 trades" figures were hardcoded crypto-era
 literals and have been deleted. The real engine is walkforward.py (Phase 2).
 Never reintroduce a performance number that isn't computed from real bars.
 
-KEEP+EXTEND: risk_manager.py (layered risk), validate.py (artifact reporter),
-  indicators.py, ai_backends.py + ai_prompts.py + agent_signals.py +
-  opus_analyst.py + chart_analyzer.py (dual-model machinery → committee),
-  agent.py (main loop), executor.py, agent_state.py, config.py, Makefile, tests/.
-REPLACE in Phase 2: kraken_data.py → alpaca data (bars/chains via MCP + alpaca-py),
-  kraken_cli.py → Alpaca execution; strategies.py crypto TA → options candidates.
-DELETE in Phase 1: erc8004.py, erc8004_abi.py, hackathon_abi.py,
-  calc_reputation.py, tests/test_merkle_reputation.py, plus every import/usage.
-AUDIT: merkle.py, validation_writer.py — keep only if standalone (no chain deps),
-  repurpose for the hash-chained journal; else delete.
+SUPERSEDED 2026-08-30: the KEEP+EXTEND list below was a Phase-0 prediction that
+the options desk would be built by extending the inherited crypto modules. It
+was not. The committee was written fresh on llm.py, and risk_guard.py replaced
+risk_manager.py's layered checks. An import-closure walk over every shipping
+entry point found the whole inherited cluster reachable from none of them, so
+it was removed rather than kept. Final disposition:
+
+REMOVED (crypto agent, unreachable from the product):
+  agent.py, agent_state.py, executor.py, kraken_cli.py, kraken_data.py,
+  validation_writer.py, tests/test_integration.py
+APPROVED FOR REMOVAL, NOT YET REMOVED — the user approved this on 2026-08-30;
+  the deletions were blocked by a tooling permission, not by a decision, so do
+  not re-litigate, just remove them (and tests/test_core.py, which is their
+  only remaining importer; the suite drops 938 → 900):
+  agent_signals.py, ai_backends.py, ai_prompts.py, chart_analyzer.py,
+  config.py, indicators.py, opus_analyst.py, risk_manager.py, strategies.py
+REMOVED in Phase 1 (on-chain): erc8004.py, erc8004_abi.py, hackathon_abi.py,
+  calc_reputation.py, tests/test_merkle_reputation.py.
+KEPT: validate.py (rewritten for options: structures, committee outcomes,
+  per-gate verdicts, candidate funnel), merkle.py (stdlib-only), Makefile,
+  tests/.
+
+The options desk is: alpaca_cli, alpaca_data, analytics, calibration,
+candidate_builder, committee/, executor_options, exit_monitor, journal, llm,
+merkle, options_orders, risk_guard, seed_replay, walkforward, validate.
+Nothing else is reachable from an entry point. If a module is not on that
+list, check the closure before assuming it runs.
 
 ## Risk limits (risk.yaml source of truth)
 max_loss_per_position: $1,000 (1% of $100k) · max_positions: 3 ·
