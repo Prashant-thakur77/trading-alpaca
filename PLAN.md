@@ -62,11 +62,19 @@ Decision: alpaca-py direct for the Phase 2 data/execution layer (unit-testable,
 no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
 
 ## Phase 3 — Mon Aug 31: committee + first live session
-- [ ] committee/: vol_analyst, news_analyst, bull-vs-bear debate (2 rounds),
-      trader vote → one TradeIntent or ABSTAIN, reasoning captured
-      (build on ai_backends.py / agent_signals.py dual-model machinery)
-- [ ] veto: two different model families must agree on direction, else ABSTAIN;
-      rule-based fallback on API failure
+- [x] committee/: vol_analyst, bear_adversary, trader vote → one TradeIntent
+      or ABSTAIN, reasoning captured (committee/analysts.py, trader.py,
+      decide.py)
+      → DEVIATION: no news_analyst and no 2-round debate. Sentiment was
+        dropped deliberately: with a May 2026 knowledge cutoff and live Aug
+        2026 markets, an LLM "news" view is recalled training data, not news
+        (contamination, arXiv 2412.20138). The adversary supplies the
+        opposing case the debate was meant to produce.
+      → NOT built on ai_backends.py / agent_signals.py. That machinery was
+        superseded by a fresh llm.py; the old modules are now orphaned and
+        their disposition is an open question (see Phase 8).
+- [x] veto: two different model families must agree, else ABSTAIN; rule-based
+      fallback on API failure (committee/veto.py: thesis_check + blind_review)
 - [x] executor.py → atomic multi-leg order via the Alpaca CLI; monitor exits:
       profit target 50% of credit, max-loss, DTE ≤ 3 (exit_monitor.py, wired
       into run_session; unwinds with a new inverted mleg order because there
@@ -81,15 +89,22 @@ no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
 ## Phase 4 — Tue Sep 1: self-grading + dashboard core
 - [x] Per-analyst Brier calibration; demotion weights recomputed from the
       journal every cycle and passed into committee/decide.py's aggregate()
-- [ ] Deterministic replay mode for any past day (offline)
-- [ ] dashboard: Live Desk (positions, Greeks, P&L, decision feed) + Counters
-      (seen / guard-denied / vetoed / abstained / executed)
+- [x] Deterministic replay mode for any past day (offline)
+      → scripts/seed_calibration.py + seed_replay.py replay the real committee
+        over any historical window; scripts/replay.py replays the committed
+        judge scenarios credential-free. 43 windows replayed to date.
+- [x] dashboard: decision feed + funnel counters (seen / guard-denied /
+      vetoed / abstained / executed) on site/index.html and site/judge/
+      → PARTIAL: no live positions/Greeks/P&L panel. There are no live
+        positions to show until the first session fills.
 
 ## Phase 5 — Wed Sep 2: judge experience + hardening
-- [ ] /judge page: credential-free, 4 one-click replay scenarios (bull, bear,
-      veto-disagreement, guard-denial)
-- [ ] Deploy dashboard publicly; Docker updated; CI green; 25+ tests
-- [ ] README: 4 rubric sections + architecture diagram + quickstart + judge link
+- [x] /judge page: credential-free, 4 one-click replay scenarios (allow, bear,
+      veto-disagreement, guard-denial) — site/judge/, `make judge` verifies
+      all 4 at as_of, +3d and +30d
+- [x] Deploy dashboard publicly (trading-alpaca-judge.vercel.app); Docker
+      present; CI green (.github/workflows/test.yml); 938 tests vs a 25 target
+- [x] README: 4 rubric sections + architecture diagram + quickstart + judge link
 - [ ] Live session #2
 
 ## Phase 6 — Thu Sep 3: demo assets
@@ -100,3 +115,30 @@ no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
 - [ ] Flatten all positions; journal verify; freeze
 - [ ] Submit on lablab by 12:00 UTC (5:30 PM IST): repo, video, PDF, demo URL
 - [ ] Build-in-public post tagging Alpaca + lablab
+
+## Open question — 9 orphaned inherited modules
+An import-closure walk over every shipping entry point on 2026-08-30 found
+nine top-level modules reachable from none of them, importing only each other
+and tests/test_core.py:
+
+    agent_signals  ai_backends  ai_prompts  chart_analyzer  config
+    indicators     opus_analyst  risk_manager  strategies
+
+CLAUDE.md lists all nine under KEEP+EXTEND, on the Phase-0 expectation that
+the committee would be built on the inherited dual-model machinery. It was
+not: committee/ runs on a fresh llm.py, and risk_guard.py replaced
+risk_manager.py's layered checks. So the KEEP note describes a plan that
+reality overtook.
+
+Leaving them costs a crypto TA engine sitting in an options agent's repo, and
+38 of the tests exercise it rather than the product. Removing them contradicts
+an explicit CLAUDE.md instruction and drops the suite 938 → 900.
+
+DEFERRED, needs an explicit decision — not to be actioned unilaterally.
+
+## Carried
+- [ ] Run `make walkforward` against live Alpaca data (engine + tests done)
+- [ ] Walk-forward with and without richness scoring; report the delta in the
+      README even if flat or negative (blocked on the richness tie-breaker,
+      which is deliberately still default-off)
+- [ ] scheduler script, one cycle / 30 min in market hours
