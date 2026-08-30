@@ -1,7 +1,7 @@
 """
 Alpaca market data adapter — stock bars and option chains, 15-minute cached.
 
-Replaces kraken_data.py. Clients are injected so the whole adapter is testable
+Clients are injected so the whole adapter is testable
 with no credentials and markets closed.
 
 One non-obvious thing this module exists to handle: Alpaca's option-chain
