@@ -10,6 +10,7 @@ the code or outlive a number it quotes.
 import json
 import re
 import subprocess
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,24 @@ OUT_HTML = ROOT / "docs" / "press" / "deck.html"
 OUT_PDF = ROOT / "docs" / "press" / "trading-alpaca-deck.pdf"
 SITE = "https://trading-alpaca-judge.vercel.app"
 REPO = "https://github.com/Prashant-thakur77/trading-alpaca"
+
+
+def _playwright_node_path():
+    """Locate a node_modules that actually contains playwright.
+
+    This used to be a hardcoded path into a Claude session scratchpad under
+    /tmp, which is wiped between sessions — so the PDF silently stopped
+    rendering and the committed deck.pdf went stale while deck.html kept
+    updating. Search real locations instead, and return None (caller skips
+    with a message) rather than emitting a stale-looking success.
+    """
+    env = os.environ.get("PLAYWRIGHT_NODE_PATH")
+    cands = ([Path(env)] if env else []) + [
+        Path.home() / "shots" / "recorder" / "node_modules",
+        Path.home() / "webcmd-workshop" / "webcmd-adapters" / "node_modules",
+        ROOT / "node_modules",
+    ]
+    return next((c for c in cands if (c / "playwright").is_dir()), None)
 
 
 def tests() -> str:
@@ -246,8 +265,12 @@ const {{ chromium }} = require('playwright');
 }})();
 """
     d = ROOT / ".deck-tmp"; d.mkdir(exist_ok=True); (d / "r.js").write_text(js)
-    mods = Path("/tmp/claude-1000/-home-prashant-trading-alpaca/"
-                "4fa23de9-780f-40db-b6a8-4cfdd948c056/scratchpad/shots/node_modules")
+    mods = _playwright_node_path()
+    if mods is None:
+        print("  PDF render skipped: playwright not found. "
+              "npm i playwright in ~/shots/recorder, or set PLAYWRIGHT_NODE_PATH.")
+        import shutil; shutil.rmtree(d, ignore_errors=True)
+        return 1
     r = subprocess.run(["node", str(d / "r.js")], capture_output=True, text=True,
                        env={"NODE_PATH": str(mods), "PATH": "/usr/bin:/bin:/home/prashant/.volta/bin"})
     if r.returncode == 0 and OUT_PDF.exists():

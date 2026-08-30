@@ -210,8 +210,17 @@ const {{ chromium }} = require('playwright');
 """
     d = ROOT / ".onepager-tmp"; d.mkdir(exist_ok=True)
     (d / "r.js").write_text(js)
-    node_mods = Path("/tmp/claude-1000/-home-prashant-trading-alpaca/"
-                     "4fa23de9-780f-40db-b6a8-4cfdd948c056/scratchpad/shots/node_modules")
+    # Shared with build_deck.py: the old hardcoded /tmp scratchpad path is
+    # wiped between sessions, which let one-pager.html update while the
+    # committed PDF silently went stale.
+    sys.path.insert(0, str(Path(__file__).parent))
+    from build_deck import _playwright_node_path
+    node_mods = _playwright_node_path()
+    if node_mods is None:
+        print("  PDF render skipped: playwright not found. "
+              "npm i playwright in ~/shots/recorder, or set PLAYWRIGHT_NODE_PATH.")
+        import shutil; shutil.rmtree(d, ignore_errors=True)
+        return 1
     r = subprocess.run(["node", str(d / "r.js")], capture_output=True, text=True,
                        env={"NODE_PATH": str(node_mods), "PATH": "/usr/bin:/bin:/home/prashant/.volta/bin"})
     if r.returncode == 0 and OUT_PDF.exists():
