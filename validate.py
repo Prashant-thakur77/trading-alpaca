@@ -58,120 +58,108 @@ def load_artifact(path: Path) -> dict:
 
 
 def analyze_trade_intents(data: dict) -> dict:
-    """Analyze trade intent records."""
+    """Analyze committee decisions projected from the journal.
+
+    The crypto-era version of this counted pairs, regimes and long/short
+    directions. None of those exist for a defined-risk options desk, and the
+    file it read was never written. It now summarises what the committee
+    actually produced: a structure, a probability, and an outcome.
+    """
     records = data.get("records", [])
     if not records:
         return {"count": 0}
 
-    strategies = set()
-    pairs = set()
-    regimes = set()
-    directions = {"long": 0, "short": 0}
-    live_count = 0
-    blocked_count = 0
+    underlyings, structures = set(), set()
+    outcomes: dict[str, int] = {}
+    probs, pnls = [], []
 
     for r in records:
-        # strategy field can be a string or list
-        strat = r.get("strategy") or r.get("strategies") or ""
-        if isinstance(strat, str) and strat:
-            strategies.add(strat)
-        elif isinstance(strat, list):
-            strategies.update(strat)
-        pairs.add(r.get("pair", ""))
-        regimes.add(r.get("regime", "").upper())
-        d = r.get("direction", "LONG").upper()
-        directions[d] = directions.get(d, 0) + 1
-        src = (r.get("source") or "").upper()
-        if src.startswith("LIVE") or r.get("isLive"):
-            live_count += 1
-        if r.get("outcome") == "BLOCKED":
-            blocked_count += 1
+        if r.get("underlying"):
+            underlyings.add(r["underlying"])
+        if r.get("structure"):
+            structures.add(r["structure"])
+        outcomes[r.get("outcome", "UNKNOWN")] = outcomes.get(r.get("outcome", "UNKNOWN"), 0) + 1
+        if isinstance(r.get("aggregateProbability"), (int, float)):
+            probs.append(r["aggregateProbability"])
+        if isinstance(r.get("realizedPnl"), (int, float)):
+            pnls.append(r["realizedPnl"])
 
+    abstained = outcomes.get("ABSTAINED", 0) + outcomes.get("VETOED", 0)
     return {
         "count": len(records),
-        "strategies": sorted(strategies - {""}),
-        "pairs": sorted(pairs - {""}),
-        "regimes": sorted(regimes - {""}),
-        "directions": directions,
-        "liveRecords": live_count,
-        "blockedSignals": blocked_count,
+        "underlyings": sorted(underlyings),
+        "structures": sorted(structures),
+        "outcomes": outcomes,
+        "abstentionRate": round(abstained / len(records) * 100, 1),
+        "meanProbability": round(sum(probs) / len(probs), 3) if probs else None,
+        "resolved": len(pnls),
+        "realizedPnl": round(sum(pnls), 2) if pnls else 0.0,
+        "winners": sum(1 for p in pnls if p > 0),
     }
 
 
 def analyze_risk_checks(data: dict) -> dict:
-    """Analyze risk check records."""
+    """Analyze the two refusal gates: RiskGuard and the dual-model veto.
+
+    RiskGuard is three-valued (ALLOW / ALLOW_WITH_DOWNSIZE / DENY), not the
+    crypto agent's five boolean layers, so this reports verdict counts per
+    gate instead of a per-layer pass/fail matrix.
+    """
     records = data.get("records", [])
     if not records:
         return {"count": 0}
 
-    layers = data.get("riskLayers", [])
-    total_passed = 0
-    total_rejected = 0
-    live_count = 0
-    layer_stats = {}
-
+    by_gate: dict[str, dict[str, int]] = {}
+    refused = 0
     for r in records:
-        checks = r.get("checks", {})
-        all_passed = True
-        for layer_key, check in checks.items():
-            passed = check.get("passed", True)
-            layer_stats.setdefault(layer_key, {"passed": 0, "failed": 0})
-            if passed:
-                layer_stats[layer_key]["passed"] += 1
-            else:
-                layer_stats[layer_key]["failed"] += 1
-                all_passed = False
-        if all_passed:
-            total_passed += 1
-        else:
-            total_rejected += 1
-        src = (r.get("source") or "").upper()
-        if src.startswith("LIVE") or r.get("isLive"):
-            live_count += 1
-
-    rejection_rate = (
-        total_rejected / (total_passed + total_rejected) * 100
-        if (total_passed + total_rejected) > 0
-        else 0
-    )
+        gate = r.get("gate", "unknown")
+        decision = r.get("decision", "UNKNOWN")
+        by_gate.setdefault(gate, {})
+        by_gate[gate][decision] = by_gate[gate].get(decision, 0) + 1
+        if decision in ("DENY", "VETO"):
+            refused += 1
 
     return {
         "count": len(records),
-        "layers": len(layers),
-        "layerDefinitions": layers,
-        "passed": total_passed,
-        "rejected": total_rejected,
-        "rejectionRate": round(rejection_rate, 1),
-        "liveRecords": live_count,
-        "layerStats": layer_stats,
+        "gates": data.get("gates", sorted(by_gate)),
+        "byGate": by_gate,
+        "refused": refused,
+        "allowed": len(records) - refused,
+        "refusalRate": round(refused / len(records) * 100, 1),
     }
 
 
 def analyze_strategy_checkpoints(data: dict) -> dict:
-    """Analyze strategy checkpoint records."""
+    """Analyze what the desk saw before each decision.
+
+    Replaces the crypto agent's regime-routing counters, which described a
+    trend/range classifier this project does not have. The funnel below is
+    the decision-relevant fact: how much of the chain survived to be shown.
+    """
     records = data.get("records", [])
     if not records:
         return {"count": 0}
 
-    regime_types = data.get("regimeTypes", {})
-    regime_counts = {}
-    transitions = 0
-    pairs = set()
-
+    underlyings = set()
+    total_built = shown = 0
+    vols = []
     for r in records:
-        regime = r.get("detectedRegime", "")
-        regime_counts[regime] = regime_counts.get(regime, 0) + 1
-        pairs.add(r.get("pair", ""))
-        if r.get("regimeChanged"):
-            transitions += 1
+        if r.get("underlying"):
+            underlyings.add(r["underlying"])
+        if isinstance(r.get("totalCandidates"), int):
+            total_built += r["totalCandidates"]
+        if isinstance(r.get("shownToCommittee"), int):
+            shown += r["shownToCommittee"]
+        if isinstance(r.get("realizedVol"), (int, float)):
+            vols.append(r["realizedVol"])
 
     return {
         "count": len(records),
-        "regimeTypes": len(regime_types),
-        "regimeDistribution": regime_counts,
-        "regimeTransitions": transitions,
-        "pairs": sorted(pairs - {""}),
-        "routingVersion": data.get("routingVersion", ""),
+        "underlyings": sorted(underlyings),
+        "candidatesBuilt": total_built,
+        "shownToCommittee": shown,
+        "shownPct": round(shown / total_built * 100, 2) if total_built else None,
+        "meanRealizedVol": round(sum(vols) / len(vols), 4) if vols else None,
     }
 
 
@@ -207,9 +195,10 @@ def generate_report(as_json: bool = False) -> dict:
         "riskChecks": rc_analysis,
         "strategyCheckpoints": sc_analysis,
         "walkForward": load_walkforward_results(),
-        "drawdownControl": {
-            "riskLayers": rc_analysis.get("layers", 5),
-            "rejectionRate": f"{rc_analysis.get('rejectionRate', 0)}%",
+        "refusalControl": {
+            "gates": len(rc_analysis.get("byGate", {})),
+            "refusalRate": f"{rc_analysis.get('refusalRate', 0)}%",
+            "abstentionRate": f"{ti_analysis.get('abstentionRate', 0)}%",
         },
         "validationQuality": {
             "totalArtifacts": total_records,
@@ -241,37 +230,38 @@ def generate_report(as_json: bool = False) -> dict:
     print(f"\n{'─'*70}")
     print(f"  TRADE INTENTS ({ti_analysis['count']} records)")
     print(f"{'─'*70}")
-    print(f"  Strategies:  {', '.join(ti_analysis.get('strategies', []))}")
-    print(f"  Pairs:       {', '.join(ti_analysis.get('pairs', []))}")
-    print(f"  Regimes:     {', '.join(ti_analysis.get('regimes', []))}")
-    print(f"  Directions:  {ti_analysis.get('directions', {})}")
-    print(f"  Live trades: {ti_analysis.get('liveRecords', 0)}")
-    print(f"  Blocked:     {ti_analysis.get('blockedSignals', 0)}")
+    print(f"  Underlyings:     {', '.join(ti_analysis.get('underlyings', [])) or 'none'}")
+    print(f"  Structures:      {', '.join(ti_analysis.get('structures', [])) or 'none'}")
+    print(f"  Outcomes:        {ti_analysis.get('outcomes', {})}")
+    print(f"  Abstention rate: {ti_analysis.get('abstentionRate', 0)}%")
+    prob = ti_analysis.get("meanProbability")
+    print(f"  Mean probability: {prob if prob is not None else 'n/a'}")
 
-    # Show live performance from aggregateStats if available
-    agg = artifacts["trade_intents"].get("aggregateStats", {})
-    if agg.get("liveWinRate"):
-        print(f"\n  Live Performance (Paper Trading):")
-        print(f"    Win Rate:      {agg['liveWinRate']}")
-        print(f"    Realized PnL:  +${agg.get('liveRealizedPnl', 0):.2f}")
+    resolved = ti_analysis.get("resolved", 0)
+    if resolved:
+        print(f"\n  Resolved outcomes (replayed history, not live fills):")
+        print(f"    Resolved:      {resolved}")
+        print(f"    Winners:       {ti_analysis.get('winners', 0)}")
+        print(f"    Realized PnL:  ${ti_analysis.get('realizedPnl', 0.0):+.2f}")
 
     print(f"\n{'─'*70}")
     print(f"  RISK CHECKS ({rc_analysis['count']} records)")
     print(f"{'─'*70}")
-    for layer in rc_analysis.get("layerDefinitions", []):
-        print(f"  {layer}")
-    print(f"\n  Passed:         {rc_analysis.get('passed', 0)}")
-    print(f"  Rejected:       {rc_analysis.get('rejected', 0)}")
-    print(f"  Rejection Rate: {rc_analysis.get('rejectionRate', 0)}%")
-    print(f"  Live checks:    {rc_analysis.get('liveRecords', 0)}")
+    for gate, decisions in rc_analysis.get("byGate", {}).items():
+        print(f"  {gate}: {decisions}")
+    print(f"\n  Allowed:      {rc_analysis.get('allowed', 0)}")
+    print(f"  Refused:      {rc_analysis.get('refused', 0)}")
+    print(f"  Refusal rate: {rc_analysis.get('refusalRate', 0)}%")
 
     print(f"\n{'─'*70}")
     print(f"  STRATEGY CHECKPOINTS ({sc_analysis['count']} records)")
     print(f"{'─'*70}")
-    print(f"  Regime types:       {sc_analysis.get('regimeTypes', 0)}")
-    print(f"  Distribution:       {sc_analysis.get('regimeDistribution', {})}")
-    print(f"  Regime transitions: {sc_analysis.get('regimeTransitions', 0)}")
-    print(f"  Routing version:    {sc_analysis.get('routingVersion', '')}")
+    print(f"  Underlyings:        {', '.join(sc_analysis.get('underlyings', [])) or 'none'}")
+    print(f"  Candidates built:   {sc_analysis.get('candidatesBuilt', 0)}")
+    print(f"  Shown to committee: {sc_analysis.get('shownToCommittee', 0)}"
+          f"  ({sc_analysis.get('shownPct')}% of built)")
+    mrv = sc_analysis.get("meanRealizedVol")
+    print(f"  Mean realized vol:  {mrv if mrv is not None else 'n/a'}")
 
     print(f"\n{'─'*70}")
     print(f"  WALK-FORWARD OUT-OF-SAMPLE RESULTS")
@@ -294,9 +284,9 @@ def generate_report(as_json: bool = False) -> dict:
                   f"{pf_s:>7s} {o.get('max_drawdown_r', 0):8.2f}")
 
     print(f"\n{'─'*70}")
-    print(f"  DRAWDOWN CONTROL")
+    print(f"  REFUSAL CONTROL")
     print(f"{'─'*70}")
-    for k, v in report["drawdownControl"].items():
+    for k, v in report["refusalControl"].items():
         print(f"    {k:20s} {v}")
     print(f"\n  Validation Quality:")
     for k, v in report["validationQuality"].items():

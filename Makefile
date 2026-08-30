@@ -1,4 +1,4 @@
-.PHONY: site help install test status validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration seed-calibration judge judge-page clean
+.PHONY: site help install test status validate validation-artifacts validate-json verify verify-journal walkforward check-account session-dry session session-live calibration seed-calibration judge judge-page clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
@@ -10,7 +10,7 @@ help: ## Show available commands
 	@echo "  make session-dry  Run one full cycle, no order sent"
 	@echo "  make validate     Validation audit report (for judges)"
 	@echo "  make validate-json  Audit report as JSON"
-	@echo "  make verify       Verify Merkle integrity of validation artifacts"
+	@echo "  make verify       Merkle root over artifacts derived from the journal"
 	@echo "  make verify-journal  Verify hash chain of the decision journal"
 	@echo "  make calibration  Per-analyst Brier calibration report"
 	@echo "  make seed-calibration  Replay the committee over post-cutoff history"
@@ -27,13 +27,20 @@ install:
 test:
 	python3 -m pytest tests/ -v --tb=short
 
-validate:
+# The three files under validation/ are a projection of the hash-chained
+# journal, derived offline — not a second write path in the live session.
+# Rebuilding before reporting is what keeps the Merkle root in `make verify`
+# attesting to the current journal rather than to whatever was committed last.
+validation-artifacts:
+	python3 scripts/build_validation_artifacts.py
+
+validate: validation-artifacts
 	python3 validate.py
 
-validate-json:
+validate-json: validation-artifacts
 	python3 validate.py --json
 
-verify:
+verify: validation-artifacts
 	python3 merkle.py
 
 # `status` and `check-account` are the same preflight: equity, options

@@ -1,0 +1,221 @@
+{
+  "derivedFrom": "hash-chained journal (verdict, veto)",
+  "gates": [
+    "RiskGuard",
+    "DualModelVeto"
+  ],
+  "records": [
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "bc390d23f66519b8081d2c1b30794f9c8e0cd05884aa2d2e7e46f628c293b246",
+      "gate": "DualModelVeto",
+      "id": "RC-0001",
+      "reason": "SPY sits 11.65 points below the short strike (781) with 32 DTE and low realized vol (9.52%), giving the bear call spread favorable time decay and cushion. The trade requires only a 1.76% rally to breakeven, a conservative bet well-supported by the vol regime.",
+      "source": "journal.jsonl",
+      "structure": "bear_call_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T14:42:16.752605+00:00"
+    },
+    {
+      "approvedContracts": 1,
+      "decision": "ALLOW",
+      "entryHash": "5c6a1a85b13beb64dfe25d39953a3996b00a19eb51bc6ee85bc6b3e36f613ae5",
+      "gate": "RiskGuard",
+      "id": "RC-0002",
+      "reason": "Within all limits: risk $322.00, 1/3 positions",
+      "source": "journal.jsonl",
+      "structure": "bear_call_spread",
+      "timestamp": "2026-08-29T14:43:10.932148+00:00",
+      "underlying": "SPY"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "5e3dac559297aa143541c81d77f1c3d4d64b671240f8fab0037094f629d1953e",
+      "gate": "DualModelVeto",
+      "id": "RC-0003",
+      "reason": "SPY is well above the sold 745 strike with 25 DTE in a low-vol environment; bull put spread is a reasonable premium-collection bet on continuation or modest downside support, with a 1.9% margin to breakeven.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:24:13.619694+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "3531d595b9079239ac9609a2b4614c713baba2157a31d30c5bc0e93224d02425",
+      "gate": "DualModelVeto",
+      "id": "RC-0004",
+      "reason": "Bull put spread is appropriately bullish; SPY at 737.05 is ~1.6% above the sold 725 strike with 31 DTE, providing reasonable cushion. Realized vol of 13.27% and net credit of 1.38 relative to 362 max loss represent sound parameters for this moderately bullish setup.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:24:15.854092+00:00"
+    },
+    {
+      "blindOk": false,
+      "decision": "VETO",
+      "entryHash": "a9664c11a4fd2323dc39fa5899b14a829480f7b62bc4ad84eb33716d5e245801",
+      "gate": "DualModelVeto",
+      "id": "RC-0005",
+      "reason": "Bull put spread is directionally reasonable, but the sold 720p is dangerously tight (only 0.75% OTM) with inadequate compensation: 2.08 credit on a 5-wide spread creates a 140:1 risk-reward with breakeven just 1.04% below spot\u2014minimal margin for error in a 30-DTE window.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:24:16.222110+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "d454068492c7b9c6bc2f69c182aaaa3d6d7e692bf62874df352c29e1c6c5439c",
+      "gate": "DualModelVeto",
+      "id": "RC-0006",
+      "reason": "Bull put spread is a prudent income strategy with 3.3% cushion below spot and decent credit ($1.38) at moderate realized vol (15.39%). 29 DTE allows time decay; defined max loss is acceptable.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:24:16.627897+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "81ed46705155f65e8aa894a9f0e2fad804e7c93a976bd6d3d8d8bc4a9e8577a5",
+      "gate": "DualModelVeto",
+      "id": "RC-0007",
+      "reason": "Bull put spread with 1% OTM short strike is appropriately bullish-biased; 1.08% breakeven cushion below spot with 28 DTE and moderate realized vol (14.89%) supports the directional thesis and risk profile.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:24:16.953633+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "f736c9ea5b6ef9a9cf1a9b5210bf4ff7abf17656d43275a5375bcf687773de68",
+      "gate": "DualModelVeto",
+      "id": "RC-0008",
+      "reason": "Bull put spread is a sound defined-risk structure; at 12.59% realized vol, selling premium is attractive, and a 1.08% downside to breakeven over 31 DTE with 2.9:1 risk/reward is acceptable for SPY.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:37:25.934780+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "b24e564ab18459e3773696a0294cdbb227497ebfecf90ef00f2add489e71d257",
+      "gate": "DualModelVeto",
+      "id": "RC-0009",
+      "reason": "Bull put spread appropriately captures a bullish view with SPY already 4.81 points above the 750p short strike; 30 DTE and moderate realized vol (12.47%) provide reasonable margin for the consolidation thesis.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:37:28.289745+00:00"
+    },
+    {
+      "blindOk": false,
+      "decision": "VETO",
+      "entryHash": "5989c6d46c0389016f62b10f3bbc60e99376535c99d52d9b205f45834d4f64dd",
+      "gate": "DualModelVeto",
+      "id": "RC-0010",
+      "reason": "Short strike at 735 is only 1.11% cushion below spot with 28 DTE; realized vol of 11.96% implies ~4% expected move, placing the short put within one std dev of likely price range. Insufficient margin for error.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:39:44.474394+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "c2ae528832b27613c9aec8e9e717df485a90398d467f0e2841ddde60b888bd74",
+      "gate": "DualModelVeto",
+      "id": "RC-0011",
+      "reason": "A bear call spread at these strikes is a reasonable neutral-to-mildly-bearish stance given 25 DTE and moderate realized vol. Position sizing is conservative; breakeven only 1.4% OTM reflects measured conviction rather than aggressive directional bias.",
+      "source": "seed_journal.jsonl",
+      "structure": "bear_call_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:42:22.990379+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "8b18d09c7672752920cdd25f0cfc895111481df4c2ad08f98f8c898a72331d6c",
+      "gate": "DualModelVeto",
+      "id": "RC-0012",
+      "reason": "Bull put spread is a reasonable bullish/neutral reading: SPY at 748.28 sits 18.28 above the short 730 strike with 31 DTE and 10.91% realized vol, offering adequate cushion and a defensible risk/credit profile for a modest directional bias.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:42:24.448814+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "39fe95006329d5ba3e8a4037828e253ebd3050205ed392df3df26c10e9b6da82",
+      "gate": "DualModelVeto",
+      "id": "RC-0013",
+      "reason": "Bull put spread reflects neutral-to-bullish bias with spot 738 well above the 730 short strike; 1.16 credit appropriate for 29 DTE and 11.96% realized vol, providing ~9-point cushion to breakeven.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:44:11.275550+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "75c2f67e506bccfcb2aa0bb031ccbdfe7b9528f87acf95b8815321d715061882",
+      "gate": "DualModelVeto",
+      "id": "RC-0014",
+      "reason": "SPY is trading 1.9% above the sold 725p strike with 28 DTE remaining; the bull put spread is an appropriate neutral-to-bullish structure for this risk level. The 1.06 credit on a 5-wide, 723.94 breakeven, and modest realized vol of 11.61% reflect reasonable risk/reward positioning.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:45:55.799614+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "bbb5c406a065365577a00cd10fd192f818a4d061684763d2f492591e1bd6bc45",
+      "gate": "DualModelVeto",
+      "id": "RC-0015",
+      "reason": "SPY has a 2.6% cushion above the 720 short strike with moderate realized volatility (9.93%) and 25 DTE; a bull put spread reflects a reasonable bullish-to-neutral stance requiring only price stability.",
+      "source": "seed_journal.jsonl",
+      "structure": "bull_put_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:45:57.075673+00:00"
+    },
+    {
+      "blindOk": true,
+      "decision": "PASS",
+      "entryHash": "01f88987d6903bc9d95e8a8383a22807c442608b4e67074e48b38954113036bf",
+      "gate": "DualModelVeto",
+      "id": "RC-0016",
+      "reason": "Bear call spreads are appropriate for neutral-to-slightly-bearish positioning; with realized vol at 11% (moderate) and DTE=30, selling premium at 740/745 while capping risk is a sound defined-risk structure. SPY would need a 1.4% rally to touch the sold strike, making this a reasonable bet against significant upside within the window.",
+      "source": "seed_journal.jsonl",
+      "structure": "bear_call_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:48:55.415037+00:00"
+    },
+    {
+      "blindOk": false,
+      "decision": "VETO",
+      "entryHash": "18340097df9aa2e7f17e5a321aa52ad8048d924902126309713499706ffbdc5c",
+      "gate": "DualModelVeto",
+      "id": "RC-0017",
+      "reason": "Realized vol of 12.62% implies ~3% moves likely in 28 days; a 1.37% cushion to breakeven is too tight relative to this volatility environment.",
+      "source": "seed_journal.jsonl",
+      "structure": "bear_call_spread",
+      "thesisOk": true,
+      "timestamp": "2026-08-29T19:51:15.907803+00:00"
+    }
+  ],
+  "schema": "options.risk_checks.v1",
+  "verdicts": [
+    "ALLOW",
+    "ALLOW_WITH_DOWNSIZE",
+    "DENY",
+    "PASS",
+    "VETO"
+  ]
+}
