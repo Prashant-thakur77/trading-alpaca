@@ -43,12 +43,11 @@ it was removed rather than kept. Final disposition:
 REMOVED (crypto agent, unreachable from the product):
   agent.py, agent_state.py, executor.py, kraken_cli.py, kraken_data.py,
   validation_writer.py, tests/test_integration.py
-APPROVED FOR REMOVAL, NOT YET REMOVED — the user approved this on 2026-08-30;
-  the deletions were blocked by a tooling permission, not by a decision, so do
-  not re-litigate, just remove them (and tests/test_core.py, which is their
-  only remaining importer; the suite drops 938 → 900):
+REMOVED 2026-08-30 (inherited dual-model machinery and crypto TA, superseded
+  by llm.py + committee/ and by risk_guard.py; suite 938 → 900):
   agent_signals.py, ai_backends.py, ai_prompts.py, chart_analyzer.py,
-  config.py, indicators.py, opus_analyst.py, risk_manager.py, strategies.py
+  config.py, indicators.py, opus_analyst.py, risk_manager.py, strategies.py,
+  tests/test_core.py
 REMOVED in Phase 1 (on-chain): erc8004.py, erc8004_abi.py, hackathon_abi.py,
   calc_reputation.py, tests/test_merkle_reputation.py.
 KEPT: validate.py (rewritten for options: structures, committee outcomes,
