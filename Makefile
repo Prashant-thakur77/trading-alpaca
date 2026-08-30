@@ -1,4 +1,4 @@
-.PHONY: site help install test status scan dry-run run reset validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration seed-calibration judge judge-page clean
+.PHONY: site help install test status validate validate-json verify verify-journal walkforward check-account session-dry session session-live calibration seed-calibration judge judge-page clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
@@ -6,10 +6,8 @@ help: ## Show available commands
 	@echo "Quick Start:"
 	@echo "  make install      Install dependencies"
 	@echo "  make test         Run test suite"
-	@echo "  make status       Show agent status and paper balance"
-	@echo "  make scan         Run single scan (test signals)"
-	@echo "  make dry-run      See signals without executing"
-	@echo "  make run          Start main loop (4H scan + 5min monitor)"
+	@echo "  make status       Show paper account, options level, positions"
+	@echo "  make session-dry  Run one full cycle, no order sent"
 	@echo "  make validate     Validation audit report (for judges)"
 	@echo "  make validate-json  Audit report as JSON"
 	@echo "  make verify       Verify Merkle integrity of validation artifacts"
@@ -18,11 +16,9 @@ help: ## Show available commands
 	@echo "  make seed-calibration  Replay the committee over post-cutoff history"
 	@echo "  make check-account   Verify Alpaca paper account is set up correctly"
 	@echo "  make walkforward  Run walk-forward OOS validation (needs Alpaca keys)"
-	@echo "  make session-dry  Run one session cycle, no order sent"
 	@echo "  make session      Run one session cycle (safe default: no order sent)"
 	@echo "  make session-live Run one session cycle, guarded execution LIVE (submits real orders)"
 	@echo "  make judge        Replay the 4 credential-free judge scenarios"
-	@echo "  make reset        Reset paper balance to \$$100,000"
 	@echo "  make clean        Remove caches and logs"
 
 install:
@@ -30,21 +26,6 @@ install:
 
 test:
 	python3 -m pytest tests/ -v --tb=short
-
-status:
-	python3 agent.py --status
-
-scan:
-	python3 agent.py --single-scan
-
-dry-run:
-	python3 agent.py --dry-run
-
-run:
-	python3 agent.py
-
-reset:
-	python3 agent.py --reset
 
 validate:
 	python3 validate.py
@@ -55,7 +36,10 @@ validate-json:
 verify:
 	python3 merkle.py
 
-check-account:
+# `status` and `check-account` are the same preflight: equity, options
+# level, open positions. Kept as two names because README and the
+# runbook each reference one of them.
+status check-account:
 	python3 scripts/check_account.py
 
 walkforward:

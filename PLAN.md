@@ -48,7 +48,13 @@ work is never blocked on Alpaca paper keys arriving. Rationale in docs/AUDIT.md.
 - [x] Commit per module
 
 ### Phase 2 leftovers carried into Phase 3
-- [ ] Retire kraken_data.py / kraken_cli.py when executor.py is ported to Alpaca
+- [x] Retire kraken_data.py / kraken_cli.py when executor.py is ported to Alpaca
+      → 2026-08-30: removed agent.py, agent_state.py, executor.py, kraken_cli.py,
+        kraken_data.py + tests/test_integration.py. An import-closure check
+        proved all five unreachable from every shipping entry point
+        (run_session, replay, seed_calibration, build_site, validate, merkle).
+        `make status/scan/dry-run/run/reset` had been routing judges straight
+        into a `FileNotFoundError: 'kraken'` traceback.
 - [ ] Run `make walkforward` against live Alpaca data once paper keys exist
       (engine + tests are done; only the real-data run is outstanding)
 

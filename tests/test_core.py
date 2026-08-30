@@ -284,35 +284,6 @@ class TestStrategyEngine:
 
 # ── Executor Position Sizing Tests ───────────────────────────
 
-class TestExecutorSizing:
-    def test_position_size_capped_at_max_pct(self):
-        """Position value should not exceed max_position_pct of portfolio."""
-        portfolio = 100_000
-        max_pct = RISK.max_position_pct / 100  # 5% = 0.05
-        max_value = portfolio * max_pct
-
-        # Simulate sizing: risk_amount / sl_distance * entry_price
-        entry = 50000  # BTC price
-        sl = 48000     # SL $2000 below
-        sl_dist = entry - sl
-        risk_pct = RISK.risk_per_trade_pct / 100  # 1.5%
-        risk_amount = portfolio * risk_pct  # $1500
-
-        volume = risk_amount / sl_dist  # 0.75 BTC
-        position_value = volume * entry  # $37,500
-
-        # Cap at max
-        if position_value > max_value:
-            volume = max_value / entry
-
-        position_value = volume * entry
-        assert position_value <= max_value + 0.01
-
-    def test_short_direction_scaling(self):
-        """Short positions should be scaled by short_position_scale (0.7x)."""
-        base_volume = 1.0
-        short_volume = base_volume * RISK.short_position_scale
-        assert short_volume == pytest.approx(0.7)
 
 
 # ── Config Validation Tests ──────────────────────────────────
@@ -358,83 +329,6 @@ class TestConfig:
 
 # ── Executor SL/TP State Machine Tests ───────────────────────
 
-class TestSLTPStateMachine:
-    """Test the trailing stop state machine using immutable Position updates."""
-
-    def _make_position(self, entry=100.0, sl=95.0, tp1=105.0, tp2=110.0, tp3=115.0):
-        from executor import Position
-        return Position(
-            pair="ETH/USDT", cli_pair="ETHUSD", direction="long",
-            entry_price=entry, volume=1.0,
-            sl_price=sl, tp1_price=tp1, tp2_price=tp2, tp3_price=tp3,
-            source="trend_rider",
-        )
-
-    def test_sl_hit_triggers_close(self):
-        """Price below SL should trigger close."""
-        pos = self._make_position()
-        price = 94.0  # below SL of 95
-        assert price <= pos.sl_price
-
-    def test_tp1_moves_sl_to_breakeven(self):
-        """TP1 hit should move SL to breakeven (entry price)."""
-        pos = self._make_position()
-        price = 106.0  # above TP1 of 105
-        assert price >= pos.tp1_price
-        # Immutable TP1 update
-        if not pos.tp1_hit and price >= pos.tp1_price:
-            pos = replace(pos, tp1_hit=True, sl_price=pos.entry_price)
-        assert pos.tp1_hit is True
-        assert pos.sl_price == 100.0  # breakeven
-
-    def test_tp2_tightens_sl_to_tp1(self):
-        """TP2 hit should tighten SL to TP1 level."""
-        pos = self._make_position()
-        pos = replace(pos, tp1_hit=True)
-        price = 111.0  # above TP2 of 110
-        assert price >= pos.tp2_price
-        if price >= pos.tp2_price:
-            pos = replace(pos, sl_price=pos.tp1_price)
-        assert pos.sl_price == 105.0  # TP1 level
-
-    def test_tp3_triggers_full_close(self):
-        """Price above TP3 should trigger full position close."""
-        pos = self._make_position()
-        price = 116.0  # above TP3 of 115
-        assert price >= pos.tp3_price
-
-    def test_trailing_stop_full_sequence(self):
-        """Full sequence: TP1 → breakeven, TP2 → tighten, TP3 → close."""
-        pos = self._make_position(entry=100.0, sl=95.0, tp1=105.0, tp2=110.0, tp3=115.0)
-
-        # Phase 1: Price rises to TP1 (immutable update)
-        price = 106.0
-        if not pos.tp1_hit and price >= pos.tp1_price:
-            pos = replace(pos, tp1_hit=True, sl_price=pos.entry_price)
-        assert pos.sl_price == 100.0  # breakeven
-
-        # Phase 2: Price rises to TP2 (immutable update)
-        price = 111.0
-        if price >= pos.tp2_price:
-            pos = replace(pos, sl_price=pos.tp1_price)
-        assert pos.sl_price == 105.0  # tightened to TP1
-
-        # Phase 3: Price rises to TP3
-        price = 116.0
-        should_close = price >= pos.tp3_price
-        assert should_close is True
-
-    def test_sl_after_tp1_is_breakeven(self):
-        """After TP1, SL at breakeven means no loss even if price drops."""
-        pos = self._make_position(entry=100.0, sl=95.0, tp1=105.0)
-        # TP1 hit (immutable update)
-        pos = replace(pos, tp1_hit=True, sl_price=pos.entry_price)
-        # Price drops back but above new SL
-        price = 101.0
-        assert price > pos.sl_price  # still safe
-        # Price drops to exactly breakeven — SL triggers
-        price = 100.0
-        assert price <= pos.sl_price  # SL triggers, PnL ≈ 0
 
 
 # ── BB Squeeze Logic Tests ───────────────────────────────────
@@ -453,42 +347,6 @@ class TestBBSqueeze:
 
 # ── State Roundtrip Tests ────────────────────────────────────
 
-class TestStateRoundtrip:
-    def test_risk_manager_state_survives_profit_loss_cycle(self):
-        """RiskManager state should be consistent after profit+loss cycle."""
-        rm = _make_rm(100_000)
-        # Open and close with profit
-        rm.register_open("ETH/USDT", "long")
-        rm.register_close("ETH/USDT", 500.0, "tp")
-        # Open and close with loss
-        rm.register_open("BTC/USDT", "short")
-        rm.register_close("BTC/USDT", -200.0, "sl")
-
-        # Verify composite state
-        assert rm.total_realized_pnl == 300.0
-        assert rm.current_balance == 100_300.0
-        assert rm.consecutive_losses == 1
-        assert rm.open_position_count == 0
-
-    def test_risk_state_serializable(self):
-        """RiskManager key fields should be JSON-serializable."""
-        import json
-        rm = _make_rm(100_000)
-        rm.register_open("ETH/USDT", "long")
-        rm.register_close("ETH/USDT", -100.0, "sl")
-
-        state = {
-            "total_realized_pnl": rm.total_realized_pnl,
-            "peak_balance": rm.peak_balance,
-            "consecutive_losses": rm.consecutive_losses,
-            "position_scale": rm.position_scale,
-            "current_balance": rm.current_balance,
-        }
-        serialized = json.dumps(state)
-        restored = json.loads(serialized)
-
-        assert restored["total_realized_pnl"] == -100.0
-        assert restored["consecutive_losses"] == 1
 
 
 # ── MACD Swing Point Detection Tests ─────────────────────────
@@ -572,56 +430,4 @@ class TestBatchTPLevels:
             lvl.price = 200.0  # type: ignore
 
 
-class TestPositionRemainingPct:
-    """Test remaining_pct and active_volume on Position."""
-
-    def _make_position(self, remaining_pct: float = 1.0):
-        from executor import Position
-        return Position(
-            pair="ETH/USDT", cli_pair="ETHUSD", direction="long",
-            entry_price=100.0, volume=10.0,
-            sl_price=95.0, tp1_price=105.0, tp2_price=110.0, tp3_price=115.0,
-            source="trend_rider", remaining_pct=remaining_pct,
-        )
-
-    def test_full_position_active_volume(self):
-        """100% remaining → active_volume == volume."""
-        pos = self._make_position(1.0)
-        assert pos.active_volume == 10.0
-
-    def test_partial_position_active_volume(self):
-        """75% remaining → active_volume == volume * 0.75."""
-        pos = self._make_position(0.75)
-        assert pos.active_volume == pytest.approx(7.5)
-
-    def test_half_position_active_volume(self):
-        """50% remaining → active_volume == volume * 0.50."""
-        pos = self._make_position(0.50)
-        assert pos.active_volume == pytest.approx(5.0)
-
-    def test_remaining_pct_immutable_update(self):
-        """Updating remaining_pct via replace keeps original intact."""
-        pos = self._make_position(1.0)
-        updated = replace(pos, remaining_pct=0.75)
-        assert pos.remaining_pct == 1.0
-        assert pos.active_volume == 10.0
-        assert updated.remaining_pct == 0.75
-        assert updated.active_volume == pytest.approx(7.5)
-
-    def test_batch_tp_full_sequence_remaining(self):
-        """Simulate full batch TP: 100% → 75% → 50% → close."""
-        pos = self._make_position(1.0)
-
-        # TP1: close 25%
-        pos = replace(pos, tp1_hit=True, sl_price=pos.entry_price, remaining_pct=0.75)
-        assert pos.remaining_pct == 0.75
-        assert pos.active_volume == pytest.approx(7.5)
-
-        # TP2: close another 25%
-        pos = replace(pos, tp2_hit=True, sl_price=pos.tp1_price, remaining_pct=0.50)
-        assert pos.remaining_pct == 0.50
-        assert pos.active_volume == pytest.approx(5.0)
-
-        # TP3: close remaining 50%
-        assert pos.tp3_price == 115.0
         # At this point close_position would close 5.0 volume
