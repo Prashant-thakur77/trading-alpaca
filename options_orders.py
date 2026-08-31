@@ -76,14 +76,52 @@ def client_order_id(intent: TradeIntent, on: date | None = None) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:CLIENT_ORDER_ID_CHARS]
 
 
+# Zero by DEFAULT so that replay, the judge scenarios and every decision-level
+# test keep pricing at the theoretical mid: what the desk DECIDES must not
+# move because of how we choose to get filled. The live submission path opens
+# the concession explicitly (see scripts/run_session.py), which is the only
+# place a real order is priced.
+DEFAULT_CONCESSION = 0.0
+LIVE_CONCESSION = 0.20
+
+
 def build_mleg_payload(
-    intent: TradeIntent, contracts: int, limit_price: float | None = None
+    intent: TradeIntent, contracts: int, limit_price: float | None = None,
+    concession: float = DEFAULT_CONCESSION,
 ) -> dict:
-    """Opening order. Credit structures get a negative limit price."""
+    """Opening order. Credit structures get a negative limit price.
+
+    `concession` is the fraction of the theoretical edge we give up to become
+    marketable, ignored when `limit_price` is passed explicitly.
+
+    Why it is not zero: `intent.net_credit` is computed from quote MIDS, and a
+    mid-priced limit on a multi-leg spread only fills if somebody crosses to
+    us. On 2026-08-31 a live order asking the full $1.96 mid credit rested 55
+    minutes against a market paying $1.63, and — because the desk refuses to
+    stack a second order on one underlying — it blocked every later cycle of
+    the session. Conceding a slice of the credit is the difference between an
+    order that prices correctly and an order that trades.
+
+    The concession only ever moves the limit TOWARD the market: it shrinks a
+    credit we demand, or raises a debit we will pay. It can never turn a
+    credit structure into one we pay to open, however large it is set.
+    """
     _validate(intent, contracts)
+    if concession < 0:
+        raise ValueError(f"concession must be >= 0, got {concession}")
     # intent.net_credit is per share, positive for a credit. Alpaca wants the
     # signed net price: negative to receive a credit, positive to pay a debit.
-    price = -intent.net_credit if limit_price is None else limit_price
+    if limit_price is None:
+        edge = intent.net_credit
+        if edge >= 0:
+            # A credit: ask for less of it, but never below zero, which would
+            # mean paying to open a structure whose whole point is the credit.
+            price = -max(0.0, edge * (1.0 - concession))
+        else:
+            # A debit (net_credit negative): be willing to pay a little more.
+            price = abs(edge) * (1.0 + concession)
+    else:
+        price = limit_price
     payload = _base(contracts, price)
     payload["client_order_id"] = client_order_id(intent)
     payload["legs"] = [

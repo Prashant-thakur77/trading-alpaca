@@ -9,7 +9,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from options_orders import build_mleg_payload
+from options_orders import LIVE_CONCESSION, build_mleg_payload
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,11 @@ class OptionsExecutor:
             return ExecutionResult("denied", reason=verdict.reason)
 
         contracts = verdict.approved_contracts
-        payload = build_mleg_payload(intent, contracts)
+        # LIVE_CONCESSION, not the zero default: this is the one place a real
+        # order is priced, and a limit at the theoretical mid does not fill.
+        # See options_orders.build_mleg_payload for the 2026-08-31 incident.
+        payload = build_mleg_payload(intent, contracts,
+                                     concession=LIVE_CONCESSION)
         self._record("proposal", {"payload": payload})
 
         try:

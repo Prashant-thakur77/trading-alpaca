@@ -181,3 +181,40 @@ class TestClientOrderId:
         a = build_mleg_payload(_credit_spread(), 1)["client_order_id"]
         b = build_mleg_payload(_credit_spread(), 1)["client_order_id"]
         assert a == b
+
+
+# ── marketable concession ─────────────────────────────────────
+
+def test_zero_concession_prices_at_the_theoretical_mid():
+    """The historical behaviour, kept reachable and pinned.
+
+    _credit_spread() sells the 445p (mid 3.05) and buys the 440p (mid 2.05),
+    so the theoretical net credit is $1.00 per share.
+    """
+    p = build_mleg_payload(_credit_spread(), 1)
+    assert p["limit_price"] == "-1.00", "default must stay at the theoretical mid"
+
+
+def test_credit_order_concedes_toward_the_market():
+    """Regression for 2026-08-31 20:34.
+
+    A live order priced at the theoretical mid credit ($1.96) rested 55
+    minutes unfilled against a spread the market was paying $1.63 for, and
+    blocked every later cycle through the no-stacking guard. A mid-priced
+    limit on a two-leg spread only fills if someone crosses to us. Conceding
+    shrinks the credit we demand, which is what makes it marketable.
+    """
+    p = build_mleg_payload(_credit_spread(), 1, concession=0.20)
+    # 1.00 credit, conceding 20% -> ask only 0.80
+    assert p["limit_price"] == "-0.80"
+
+
+def test_concession_never_flips_a_credit_into_a_debit():
+    """Conceding everything must still not pay to open a credit spread."""
+    p = build_mleg_payload(_credit_spread(), 1, concession=1.5)
+    assert float(p["limit_price"]) <= 0.0
+
+
+def test_negative_concession_is_refused():
+    with pytest.raises(ValueError):
+        build_mleg_payload(_credit_spread(), 1, concession=-0.1)
