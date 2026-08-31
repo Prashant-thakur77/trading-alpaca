@@ -1,4 +1,4 @@
-.PHONY: site help install test status validate validation-artifacts validate-json verify verify-journal walkforward check-account session-dry session session-live calibration seed-calibration judge judge-page clean
+.PHONY: site help install test status validate schedule schedule-live validation-artifacts validate-json verify verify-journal walkforward check-account session-dry session session-live calibration seed-calibration judge judge-page clean
 
 help: ## Show available commands
 	@echo "Trading Alpaca — AI Trading Agent"
@@ -18,6 +18,8 @@ help: ## Show available commands
 	@echo "  make walkforward  Run walk-forward OOS validation (needs Alpaca keys)"
 	@echo "  make session      Run one session cycle (safe default: no order sent)"
 	@echo "  make session-live Run one session cycle, guarded execution LIVE (submits real orders)"
+	@echo "  make schedule     Loop one cycle per 30 min in market hours (dry)"
+	@echo "  make schedule-live Same, armed: submits real paper orders"
 	@echo "  make judge        Replay the 4 credential-free judge scenarios"
 	@echo "  make clean        Remove caches and logs"
 
@@ -96,6 +98,19 @@ session:
 
 session-live:
 	python3 scripts/run_session.py --live
+
+# One cycle per aligned 30-minute slot, regular trading hours only. A single
+# cycle reaches an executable trade ~28% of the time; across a session of
+# slots that compounds to ~99%, which is the whole point of running it.
+# Safe by default, exactly like `session`: this target submits nothing.
+schedule:
+	python3 scripts/scheduler.py --wait-for-open
+
+# Armed. Deliberately requires the long second flag: one flag is a typo,
+# two is a decision. See the 2026-08-29 incident note above `session`.
+schedule-live:
+	python3 scripts/scheduler.py --wait-for-open --live \
+		--i-understand-this-submits-real-orders
 
 clean:
 	rm -rf __pycache__ tests/__pycache__ .pytest_cache logs/*.log
