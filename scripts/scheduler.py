@@ -213,7 +213,21 @@ class Scheduler:
 
 
 def _default_runner(cmd, timeout=None):
-    return subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=timeout)
+    """Run a cycle in its OWN process group.
+
+    Ctrl+C in a terminal sends SIGINT to the entire foreground process group,
+    so without `start_new_session` the signal reaches the cycle too and kills
+    it where it stands. Observed 2026-08-31 19:38: the scheduler logged
+    "finishing the current cycle" while run_session.py was simultaneously
+    dying of KeyboardInterrupt inside the committee.
+
+    Dry, that only costs a slot. Live, a SIGINT arriving mid-submit could
+    abandon an order whose fate we then have to reconstruct from the broker.
+    A new session detaches the child so the scheduler alone receives the
+    signal and can honour the drain it promises.
+    """
+    return subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=timeout,
+                          start_new_session=True)
 
 
 def _default_clock():

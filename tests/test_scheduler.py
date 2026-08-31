@@ -297,3 +297,21 @@ def test_a_clock_outage_does_not_crash_the_scheduler(tmp_path):
                   now=lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC))
     assert s.run() == 0
     assert len(runner.cmds) == 1, "recovered and ran a cycle after the blip"
+
+
+def test_cycles_run_detached_from_the_schedulers_signal_group():
+    """Regression for 2026-08-31 19:38.
+
+    Ctrl+C reached the cycle as well as the scheduler, so run_session.py died
+    of KeyboardInterrupt inside the committee while the scheduler was logging
+    "finishing the current cycle, then exiting". Dry that costs one slot;
+    live, a SIGINT mid-submit abandons an order in an unknown state.
+    """
+    import inspect
+
+    import scheduler as sched
+
+    src = inspect.getsource(sched._default_runner)
+    assert "start_new_session=True" in src, (
+        "cycles must run in their own process group, or a terminal Ctrl+C "
+        "kills the in-flight cycle and the graceful drain is a lie")
