@@ -274,3 +274,39 @@ def test_tools_flag_disabled_and_model_passed_through():
     assert cmd[cmd.index("--output-format") + 1] == "json"
     assert "--model" in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-sonnet-5"
+
+
+def test_cli_is_isolated_from_user_and_project_settings():
+    """The subprocess must not inherit this machine's skills/hooks/plugins.
+
+    Regression for 2026-08-31: a live session's vol_analyst returned
+    {"skillName": "available", "type": "skillTool"} instead of a probability.
+    The raw text was:
+
+        I need to check for relevant skills before proceeding with this
+        analysis.
+        <tool_call>{"type": "skillTool", "skillName": "available"}</tool_call>
+
+    A user-level plugin instructs the model to invoke skills before answering,
+    and `claude -p` inherited it, so the analyst spent its single turn on a
+    skill lookup and never produced a number. The whole cycle then abstained
+    for want of a second view. `--disable-slash-commands` does NOT prevent
+    this, because the instruction arrives via a hook, not a slash command.
+
+    `--setting-sources ""` loads none of user/project/local. `--bare` also
+    works but strips credentials, so the CLI answers "Not logged in".
+    """
+    seen = {}
+
+    def runner(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return _completed(stdout=_envelope('{"probability": 0.6, "reasoning": "ok"}'))
+
+    call_claude("prompt", runner=runner)
+    cmd = seen["cmd"]
+    assert "--setting-sources" in cmd, (
+        "the CLI call must pin its setting sources, or this machine's plugins "
+        "leak into the desk's analysts")
+    assert cmd[cmd.index("--setting-sources") + 1] == "", (
+        "setting sources must be empty: user, project and local all carry "
+        "skill and hook instructions the analysts must never see")

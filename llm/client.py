@@ -179,6 +179,20 @@ def _call_claude_inner(prompt, model, timeout, runner, prompt_hash) -> LLMRespon
         "--tools", "",
         "--strict-mcp-config",
         "--disable-slash-commands",
+        # Load NONE of user/project/local settings. Without this the desk's
+        # analysts inherit whatever skills, hooks and plugins happen to be
+        # installed on the machine running the session. On 2026-08-31 a live
+        # cycle abstained because a user-level plugin tells the model to look
+        # for relevant skills before answering, and vol_analyst obeyed:
+        #     I need to check for relevant skills before proceeding...
+        #     <tool_call>{"type":"skillTool","skillName":"available"}</tool_call>
+        # It spent its one turn on that and returned no probability, so the
+        # cycle had no second view and abstained. `--disable-slash-commands`
+        # does not help: the instruction arrives through a hook. `--bare`
+        # also isolates but strips credentials, so the CLI replies
+        # "Not logged in". Measured effect: 10,907 -> 6,778 prompt tokens,
+        # the difference being the injected preamble.
+        "--setting-sources", "",
         "--output-format", "json",
     ]
 
