@@ -4,6 +4,7 @@ Everything the scheduler touches from outside — the market clock, the
 subprocess that runs a cycle, and the passage of time — is injected, so this
 whole file runs with no network, no LLM call and no real sleeping.
 """
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -315,3 +316,55 @@ def test_cycles_run_detached_from_the_schedulers_signal_group():
     assert "start_new_session=True" in src, (
         "cycles must run in their own process group, or a terminal Ctrl+C "
         "kills the in-flight cycle and the graceful drain is a lie")
+
+
+def test_a_stale_lock_from_a_dead_process_is_reclaimed(tmp_path):
+    """Regression for 2026-09-01 16:17.
+
+    Last night's scheduler left .scheduler.lock behind holding PID 250058,
+    a process that no longer existed. release() runs in a finally, so a clean
+    exit or SIGTERM tidies up — but a SIGKILL, an OOM or a power cut does not.
+    The stale file then refuses every later start, which lands precisely when
+    someone is trying to launch before the open and can least afford to debug
+    a lock file.
+
+    A lock naming a PID that is gone carries no information and must not
+    outrank a live scheduler that wants to run.
+    """
+    lock = tmp_path / "lock"
+    lock.write_text("999999\n")          # a PID that cannot be running
+
+    s = Scheduler(clock=FakeClock([_closed(datetime(2026, 9, 1, 13, 30, tzinfo=UTC))]),
+                  runner=FakeRunner(), sleeper=FakeSleeper(),
+                  kill_switch_path=tmp_path / "KILL", lock_path=lock,
+                  now=lambda: datetime(2026, 9, 1, 10, 0, tzinfo=UTC))
+    s.acquire()          # must NOT raise
+    assert lock.read_text().strip() == str(os.getpid())
+    s.release()
+
+
+def test_a_lock_held_by_a_live_process_is_still_refused(tmp_path):
+    """The reclaim must not become a way for two schedulers to both run."""
+    lock = tmp_path / "lock"
+    lock.write_text(f"{os.getpid()}\n")   # this test process is very much alive
+
+    s = Scheduler(clock=FakeClock([_closed(datetime(2026, 9, 1, 13, 30, tzinfo=UTC))]),
+                  runner=FakeRunner(), sleeper=FakeSleeper(),
+                  kill_switch_path=tmp_path / "KILL", lock_path=lock,
+                  now=lambda: datetime(2026, 9, 1, 10, 0, tzinfo=UTC))
+    with pytest.raises(SchedulerLocked):
+        s.acquire()
+
+
+def test_an_unreadable_lock_is_refused_not_reclaimed(tmp_path):
+    """Garbage in the lock means we cannot prove the holder is dead, so the
+    safe reading is that it is alive."""
+    lock = tmp_path / "lock"
+    lock.write_text("not-a-pid\n")
+
+    s = Scheduler(clock=FakeClock([_closed(datetime(2026, 9, 1, 13, 30, tzinfo=UTC))]),
+                  runner=FakeRunner(), sleeper=FakeSleeper(),
+                  kill_switch_path=tmp_path / "KILL", lock_path=lock,
+                  now=lambda: datetime(2026, 9, 1, 10, 0, tzinfo=UTC))
+    with pytest.raises(SchedulerLocked):
+        s.acquire()

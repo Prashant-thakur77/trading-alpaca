@@ -60,6 +60,25 @@ class SchedulerLocked(RuntimeError):
     """Another scheduler already holds the lock."""
 
 
+def _pid_alive(pid: int) -> bool:
+    """Signal 0 checks for existence without delivering anything.
+
+    EPERM means the process exists but belongs to someone else, which still
+    counts as alive — refusing is the safe answer when we cannot be sure.
+    """
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
 def next_slot(now: datetime, interval_minutes: int = SLOT_MINUTES) -> datetime:
     """The next wall-clock-aligned boundary strictly after `now`.
 
@@ -109,16 +128,48 @@ class Scheduler:
     # ── singleton ────────────────────────────────────────────
     def acquire(self) -> None:
         """Take the lock, or raise. O_EXCL makes the check-and-create atomic,
-        so two schedulers racing at the open cannot both win."""
+        so two schedulers racing at the open cannot both win.
+
+        A lock naming a process that no longer exists is reclaimed rather than
+        obeyed. release() runs in a finally, so a clean exit or a SIGTERM
+        tidies up — but a SIGKILL, an OOM kill or a power cut does not, and
+        the leftover file then refuses every later start. That surfaced on
+        2026-09-01 holding a dead PID 250058, which would have blocked the
+        evening's session until someone thought to delete it by hand.
+
+        A dead PID carries no information and must not outrank a live
+        scheduler. An unreadable one does mean something: we cannot prove the
+        holder is gone, so the safe reading is that it is still running.
+        """
         try:
             fd = os.open(str(self.lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
-            raise SchedulerLocked(
-                f"another scheduler holds {self.lock_path}. If it is not "
-                f"running, delete that file.") from None
+            holder = self._lock_holder()
+            if holder is None or _pid_alive(holder):
+                who = f"PID {holder}" if holder else "an unreadable lock file"
+                raise SchedulerLocked(
+                    f"another scheduler holds {self.lock_path} ({who}). If it "
+                    f"is genuinely not running, delete that file.") from None
+            log.warning("reclaiming %s: PID %d is gone", self.lock_path, holder)
+            self.lock_path.unlink(missing_ok=True)
+            try:
+                fd = os.open(str(self.lock_path),
+                             os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                # Another scheduler reclaimed it in the same instant. One of us
+                # must lose, and losing is the safe outcome.
+                raise SchedulerLocked(
+                    f"lost the race to reclaim {self.lock_path}") from None
         with os.fdopen(fd, "w") as fh:
             fh.write(f"{os.getpid()}\n")
         self._locked = True
+
+    def _lock_holder(self) -> int | None:
+        """The PID in the lock file, or None if it does not name one."""
+        try:
+            return int(self.lock_path.read_text().strip())
+        except (OSError, ValueError):
+            return None
 
     def release(self) -> None:
         if self._locked:
