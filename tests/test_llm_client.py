@@ -310,3 +310,57 @@ def test_cli_is_isolated_from_user_and_project_settings():
     assert cmd[cmd.index("--setting-sources") + 1] == "", (
         "setting sources must be empty: user, project and local all carry "
         "skill and hook instructions the analysts must never see")
+
+
+def test_trailing_comma_before_brace_is_recovered():
+    """Regression for 2026-09-01 16:01.
+
+    A live trader call returned a complete, valid decision:
+
+        {"choice": "c2", "reasoning": "...wider breakeven cushion...", }
+
+    The trailing comma made it invalid strict JSON, _extract_json returned
+    None, and the cycle abstained with "could not extract JSON". A real
+    choice, with reasoning that engaged with the adversary's objection, was
+    discarded over a comma. Models emit these routinely; the desk should not
+    lose a trade to one.
+    """
+    def runner(cmd, **kwargs):
+        return _completed(stdout=_envelope(
+            '{"choice": "c2", "reasoning": "wider cushion", }'))
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is True
+    assert resp.parsed == {"choice": "c2", "reasoning": "wider cushion"}
+
+
+def test_trailing_comma_in_a_nested_object_is_recovered():
+    def runner(cmd, **kwargs):
+        return _completed(stdout=_envelope(
+            '{"triggers": [{"kind": "dte_below", "value": 3, },], }'))
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is True
+    assert resp.parsed["triggers"] == [{"kind": "dte_below", "value": 3}]
+
+
+def test_a_comma_inside_a_string_is_not_mangled():
+    """The repair must not corrupt content that merely looks like syntax."""
+    def runner(cmd, **kwargs):
+        return _completed(stdout=_envelope(
+            '{"reasoning": "sell c2, buy c1, }, then wait", "choice": "c2"}'))
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is True
+    assert resp.parsed["reasoning"] == "sell c2, buy c1, }, then wait"
+    assert resp.parsed["choice"] == "c2"
+
+
+def test_genuinely_broken_json_still_fails():
+    """Tolerating trailing commas must not become tolerating anything."""
+    def runner(cmd, **kwargs):
+        return _completed(stdout=_envelope("this is not json at all"))
+
+    resp = call_claude("p", runner=runner)
+    assert resp.ok is False
+    assert resp.parsed is None

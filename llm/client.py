@@ -101,8 +101,55 @@ def _loads_dict(raw: str) -> dict | None:
     try:
         value = json.loads(raw)
     except (json.JSONDecodeError, ValueError, TypeError):
-        return None
+        try:
+            value = json.loads(_strip_trailing_commas(raw))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return None
     return value if isinstance(value, dict) else None
+
+
+def _strip_trailing_commas(raw: str) -> str:
+    """Remove `,` that immediately precedes a closing `}` or `]`.
+
+    Models emit these routinely and strict JSON rejects them. On 2026-09-01 a
+    live trader call returned a complete decision — choice c2, with reasoning
+    that engaged with the adversary's objection — and the desk discarded it
+    and abstained, because of the comma in:
+
+        {"choice": "c2", "reasoning": "...", }
+
+    Scanned character by character while tracking string state, so a comma
+    inside a string value is never touched: reasoning text routinely contains
+    commas followed by braces, and a blind regex would corrupt the content it
+    is meant to rescue. Only structural commas are removed, so genuinely
+    malformed output still fails to parse and the caller still abstains.
+    """
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in raw:
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            continue
+        if ch in "}]":
+            # Drop whitespace back to, and including, a trailing comma.
+            j = len(out) - 1
+            while j >= 0 and out[j].isspace():
+                j -= 1
+            if j >= 0 and out[j] == ",":
+                del out[j:]
+        out.append(ch)
+    return "".join(out)
 
 
 def _extract_json(text: str) -> dict | None:
