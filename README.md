@@ -311,9 +311,14 @@ Judges deserve stated limits:
   none exists rather than inventing one.
 - **The vega limit binds on straddles, not verticals** — a spread's legs have
   nearly cancelling vega. That is correct behaviour, not a limit doing work.
-- **Paper fills are simulated.** Nothing here has crossed a real spread against a
-  real counterparty, and a five-day window cannot establish edge under any
-  statistical test.
+- **Paper fills are simulated.** On 2026-08-31 the desk submitted and filled a
+  live multi-leg order on the paper account — order `db977f0d`, a SPY bear call
+  spread, sold 780C / bought 785C, filled at a $1.48 net credit against a $1.22
+  limit. That proves the *mechanism* end to end: a real chain, a real committee
+  vote, a real broker round trip. It does not prove edge. Alpaca simulates the
+  fill against live quotes rather than matching a real counterparty, so no one
+  took the other side, and one trade establishes nothing under any statistical
+  test.
 - **Richness is not edge.** The fitted volatility smile is a measurement. The median
   strike that clears its own bid-ask noise is worth roughly $3.94 per contract
   against a $4.00 median quoted spread, so richness is used only to break ties
