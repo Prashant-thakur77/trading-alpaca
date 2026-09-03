@@ -83,8 +83,12 @@ no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
       validated ExitTriggers; forced 3-DTE exit; deterministic fallback
 - [x] journal a `close` entry with realized_pnl + snapshot_hash — closes the
       calibration loop and makes consecutive_losses live
-- [ ] scheduler script using Alpaca CLI, one cycle / 30 min in market hours
-- [ ] LIVE SESSION 7:00 PM–1:30 AM IST — real fills, screen-record everything
+- [x] scheduler script using Alpaca CLI, one cycle / 30 min in market hours
+      → scripts/scheduler.py: aligned :00/:30 slots, catchup=False, PID lock
+        with dead-holder reclaim, graceful drain, own process group per cycle
+- [x] LIVE SESSION 7:00 PM–1:30 AM IST — real fills, screen-record everything
+      → Mon 31 Aug: first fill, SPY bear call spread, order db977f0d, filled
+        at -1.48 against a -1.22 limit. Two live bugs found and fixed mid-session
 
 ## Phase 4 — Tue Sep 1: self-grading + dashboard core
 - [x] Per-analyst Brier calibration; demotion weights recomputed from the
@@ -105,7 +109,9 @@ no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
 - [x] Deploy dashboard publicly (trading-alpaca-judge.vercel.app); Docker
       present; CI green (.github/workflows/test.yml); 938 tests vs a 25 target
 - [x] README: 4 rubric sections + architecture diagram + quickstart + judge link
-- [ ] Live session #2
+- [x] Live session #2
+      → Tue 1 Sep: 13 cycles, 1 fill (price improvement -2.35 vs -1.94), 0 rejects
+        after the trailing-comma fix; Thu 3 Sep: 1 fill, first automated close
 
 ## Phase 6 — Thu Sep 3: demo assets
 - [x] Live session #3 for footage; record + edit 2–4 min video (honest
