@@ -9,7 +9,7 @@ Built for the [Alpaca AI Trading Agents Hackathon](https://lablab.ai/event/alpac
 **🌐 [Live site](https://trading-alpaca-judge.vercel.app)** · **[🛡️ Judge desk — replay four real decisions](https://trading-alpaca-judge.vercel.app/judge)**
 no credentials, no API keys, no model calls. Two of the four are refusals.
 
-**🎬 [Demo video — 3:55](docs/press/demo.mp4)** · every number spoken is on screen, every terminal is real log text; [script as recorded](docs/press/video-script.md) · [reproducible build](docs/press/video-build/)
+**🎬 [Demo video — 4:22](docs/press/demo.mp4)** · every number spoken is on screen, every terminal is real log text; [script as recorded](docs/press/video-script.md) · [reproducible build](docs/press/video-build/)
 
 
 ![The desk](docs/assets/01-hero.png)

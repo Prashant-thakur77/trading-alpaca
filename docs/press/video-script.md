@@ -1,13 +1,13 @@
 # Demo video — the script as recorded
 
-Runtime **3:55**, 1920×1080, 25 fps. Screen recording with synthesised voiceover; no face.
+Runtime **4:22**, 1920×1080, 25 fps. Screen recording with synthesised voiceover; no face.
 
 **Rule the recording follows:** every number spoken is on screen in the same scene, and every
 on-screen terminal is real log text — no mock-ups, no retyped output. Sources per scene are listed.
 Video was cut to the narration length per scene, so audio and picture are in sync by construction.
 
-Built with Playwright + Chromium (recording) and Chatterbox TTS (voice); the build files live
-alongside the video and are reproducible from the logs in this repo.
+Built with Playwright + Chromium (recording) and Chatterbox TTS (voice); the build lives in
+[`video-build/`](video-build/) and is reproducible from the logs in this repo.
 
 ## 00:00 – 00:25 · hero
 
@@ -51,20 +51,26 @@ alongside the video and are reproducible from the logs in this repo.
 
 > Every analyst carries a track record. Each probability is scored against what actually happened, with the Brier score. Over twelve resolved replayed trades, the volatility analyst scores point one six two and is upweighted to one point one eight. The adversary scores point two nine eight and is demoted to point nine. Read that honestly: a systematic pessimist scores badly on a winning sample by construction, and its real value was the vetoes it landed, which Brier does not measure. Twelve outcomes is a first signal, not a verdict.
 
-## 02:42 – 03:02 · verify
+## 02:42 – 03:09 · smile
+
+**On screen:** https://trading-alpaca-judge.vercel.app/smile
+
+> The desk also fits the volatility smile, and its noise floor. Fourteen of seventeen liquid expiries fit. A strike is coloured only if its distance from the curve exceeds its own bid-ask spread. On this expiry, two of nineteen do. Everything grey scores exactly zero. We measured this, and deliberately did not let it pick strikes: the signal is smaller than the cost of crossing. Measurement is not edge, and the desk knows the difference.
+
+## 03:09 – 03:29 · verify
 
 **On screen:** terminal — *env -u ALPACA_API_KEY -u ALPACA_SECRET_KEY  python3 scripts/replay.py --all --verify*  
 **Source:** `env -u ALPACA_API_KEY -u ALPACA_SECRET_KEY python3 scripts/replay.py --all --verify` and `make verify-journal` — verbatim output
 
 > You do not have to trust any of this. Four recorded decisions replay with no credentials, no API keys, and no model calls, and all four verdicts recompute to match. Every decision, including every refusal, is appended to a hash chained journal. Three fills. One close. Chain intact.
 
-## 03:02 – 03:14 · judge
+## 03:29 – 03:41 · judge
 
 **On screen:** https://trading-alpaca-judge.vercel.app/judge
 
 > The judge page puts the same four scenarios one click away. Two of the four are refusals, deliberately. A judge can step through every stage of a real decision without asking us for anything.
 
-## 03:14 – 03:55 · honest
+## 03:41 – 04:22 · honest
 
 **On screen:** terminal — *official window — what actually happened*  
 **Source:** broker account state at the Thursday close, and the four bug-fix commits in `git log`
@@ -77,6 +83,7 @@ alongside the video and are reproducible from the logs in this repo.
 
 - No music. It reads as marketing under technical content.
 - No sped-up terminals. The typewriter pace is tuned to the narration, not to look fast.
-- No claim of edge. The closing number is stated as it is, with the reason.
-- The `%,` logging traceback that appears at the top of the 21:00 cycle is cropped, not hidden:
-  it is a cosmetic format-string bug, noted in the repo, and the close event that follows it is shown in full.
+- No claim of edge. The closing number is stated as it is, with the reason; the smile page is
+  shown as a measurement the desk deliberately does *not* trade on.
+- The `%,` logging traceback at the top of the 21:00 cycle is cropped, not hidden: it is a cosmetic
+  format-string bug, noted in the repo, and the close event that follows it is shown in full.

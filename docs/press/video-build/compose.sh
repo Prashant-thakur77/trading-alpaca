@@ -11,8 +11,11 @@ cd "$(dirname "$0")"
 mkdir -p mux
 : > mux/list.txt
 
-for wav in audio/*.wav; do
-  id=$(basename "$wav" .wav)
+# Order comes from scenes.json, not the shell glob: under a UTF-8 locale
+# '06b_smile' collates before '06_calibration' (punctuation is ignored at the
+# first level), which silently reordered the cut once already.
+for id in $(python3 -c "import json;print(' '.join(s['id'] for s in json.load(open('scenes.json'))['scenes']))"); do
+  wav="audio/$id.wav"
   vid="video/$id.webm"
   [ -f "$vid" ] || { echo "missing $vid"; exit 1; }
   dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$wav")

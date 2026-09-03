@@ -32,6 +32,11 @@
       "narration": "Every analyst carries a track record. Each probability is scored against what actually happened, with the Brier score. Over twelve resolved replayed trades, the volatility analyst scores point one six two and is upweighted to one point one eight. The adversary scores point two nine eight and is demoted to point nine. Read that honestly: a systematic pessimist scores badly on a winning sample by construction, and its real value was the vetoes it landed, which Brier does not measure. Twelve outcomes is a first signal, not a verdict."
     },
     {
+      "id": "06b_smile",
+      "screen": {"type": "site", "url": "https://trading-alpaca-judge.vercel.app/smile", "actions": ["hold:16000", "scroll:500", "hold:3000", "scroll:500", "hold:3000"]},
+      "narration": "The desk also fits the volatility smile, and its noise floor. Fourteen of seventeen liquid expiries fit. A strike is coloured only if its distance from the curve exceeds its own bid-ask spread. On this expiry, two of nineteen do. Everything grey scores exactly zero. We measured this, and deliberately did not let it pick strikes: the signal is smaller than the cost of crossing. Measurement is not edge, and the desk knows the difference."
+    },
+    {
       "id": "07_verify",
       "screen": {"type": "terminal", "file": "scenes/verify.txt", "title": "env -u ALPACA_API_KEY -u ALPACA_SECRET_KEY  python3 scripts/replay.py --all --verify", "highlight": ["OK", "INTACT", "fill", "close"]},
       "narration": "You do not have to trust any of this. Four recorded decisions replay with no credentials, no API keys, and no model calls, and all four verdicts recompute to match. Every decision, including every refusal, is appended to a hash chained journal. Three fills. One close. Chain intact."
