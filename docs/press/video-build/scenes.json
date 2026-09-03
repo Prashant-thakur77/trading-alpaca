@@ -1,0 +1,50 @@
+{
+  "_rule": "Every number spoken is on screen in the same scene. Numbers come from scenes/*.txt (real logs) or the live site, never from memory.",
+  "scenes": [
+    {
+      "id": "01_hero",
+      "screen": {"type": "site", "url": "https://trading-alpaca-judge.vercel.app/", "actions": ["hold:2500", "scroll:700", "hold:2500", "scroll:700"]},
+      "narration": "Most trading agents ask a language model what to buy, and act on the answer. That is fast to build, and impossible to trust. The model can hallucinate a strike, size a position wrongly, and be confidently wrong with no record of why. This desk inverts that relationship. Deterministic code builds every legal, defined-risk options trade first. The model's only power is to pick one by number, or to refuse."
+    },
+    {
+      "id": "02_fill",
+      "screen": {"type": "terminal", "file": "scenes/fill.txt", "title": "make schedule-live  —  Tuesday 1 Sep, live paper account", "highlight": ["Result: filled", "1852 candidate", "p=0.79", "p=0.50", "credit $2.42"], "footer": "broker: FILLED at $2.35 net credit against a $1.94 limit  (order 2026-09-01 14:01 UTC)"},
+      "narration": "This is a real cycle on the official paper account. It read a live chain and built one thousand eight hundred and fifty two fully specified candidates before any model was called. Then the committee voted. The volatility analyst put the trade at seventy nine percent. The adversary put it at fifty. The trader chose, both veto gates passed, the guard allowed it, and the order filled. At a two dollar thirty five credit, against a one ninety four limit. Better than we asked for."
+    },
+    {
+      "id": "03_committee",
+      "screen": {"type": "terminal", "file": "scenes/fill.txt", "title": "the committee — the adversary changed the trade", "only": ["bear_adversary", "trader:"], "highlight": ["at-the-money", "770c", "more room to absorb the adversary"]},
+      "narration": "Read what actually happened between the analysts. The adversary objected that the highest credit candidate's short strike was essentially at the money, with high assignment risk if realized volatility spiked. The trader answered that specific objection. It moved to a strike one point one percent out of the money, and said so: more room to absorb the adversary's scenario. The adversary changed the trade. That is the difference between a committee and a rubber stamp."
+    },
+    {
+      "id": "04_veto",
+      "screen": {"type": "terminal", "file": "scenes/veto.txt", "title": "two veto gates — and they disagreed", "highlight": ["veto thesis: PASS", "veto blind:  VETO", "ABSTAIN"]},
+      "narration": "Every pick then faces two independent gates. The first is pure code: does the position's own delta match the structure's thesis? Here it passed. The second is a blind review by a separate model, shown only the trade and the market, never the analysts' arguments. Here it vetoed. The first gate cannot catch what the second caught, and the desk did nothing. Abstaining is a first class outcome, not a failure."
+    },
+    {
+      "id": "05_close",
+      "screen": {"type": "terminal", "file": "scenes/close.txt", "title": "Thursday 3 Sep — the exit monitor fires", "highlight": ["CLOSED", "$-70.50", "772.42", "realized_pnl"]},
+      "narration": "Before every entry, a pre-mortem writes deterministic exit triggers into the journal. On Thursday, SPY rallied through one of them: the breakeven at seven seventy two point four two. The monitor closed the spread on its own, for a realized loss of seventy dollars fifty. It took a small, defined loss by its own rule, before it could grow toward the maximum. That is the risk system working, not failing."
+    },
+    {
+      "id": "06_calibration",
+      "screen": {"type": "terminal", "file": "scenes/calibration.txt", "title": "make calibration — it grades its own analysts", "highlight": ["0.162", "0.298", "1.18", "0.90", "12"]},
+      "narration": "Every analyst carries a track record. Each probability is scored against what actually happened, with the Brier score. Over twelve resolved replayed trades, the volatility analyst scores point one six two and is upweighted to one point one eight. The adversary scores point two nine eight and is demoted to point nine. Read that honestly: a systematic pessimist scores badly on a winning sample by construction, and its real value was the vetoes it landed, which Brier does not measure. Twelve outcomes is a first signal, not a verdict."
+    },
+    {
+      "id": "07_verify",
+      "screen": {"type": "terminal", "file": "scenes/verify.txt", "title": "env -u ALPACA_API_KEY -u ALPACA_SECRET_KEY  python3 scripts/replay.py --all --verify", "highlight": ["OK", "INTACT", "fill", "close"]},
+      "narration": "You do not have to trust any of this. Four recorded decisions replay with no credentials, no API keys, and no model calls, and all four verdicts recompute to match. Every decision, including every refusal, is appended to a hash chained journal. Three fills. One close. Chain intact."
+    },
+    {
+      "id": "08_judge",
+      "screen": {"type": "site", "url": "https://trading-alpaca-judge.vercel.app/judge", "actions": ["hold:2200", "clicktext:^Deny$", "hold:3200", "scroll:400", "hold:1500", "clicktext:^Fail-closed$", "hold:3200", "scroll:400"]},
+      "narration": "The judge page puts the same four scenarios one click away. Two of the four are refusals, deliberately. A judge can step through every stage of a real decision without asking us for anything."
+    },
+    {
+      "id": "09_honest",
+      "screen": {"type": "terminal", "file": "scenes/summary.txt", "title": "official window — what actually happened", "highlight": ["$99,827.64", "-0.172%", "3 fills", "1 close", "0 corrupt", "skill leak", "unfillable", "trailing comma", "collision"]},
+      "narration": "What it does not claim. This is a paper account, and four trades prove nothing statistically. The official window closed at ninety nine thousand eight hundred twenty seven dollars, down point one seven percent, every position inside its defined risk. All three trades were bear call spreads, and SPY rallied. One view, expressed three times. We also found four real bugs during the live sessions, every one while the test suite was green, and every one only visible because the thing was actually running. We fixed each with a test and shipped it mid session. A desk that can refuse, cut its own losers, grade its own analysts, and show you its mistakes. Paper trading only."
+    }
+  ]
+}

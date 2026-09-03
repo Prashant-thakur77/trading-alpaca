@@ -1,0 +1,20 @@
+OFFICIAL MEASUREMENT WINDOW   Mon 31 Aug 09:30 ET  ->  EOD Thu 3 Sep
+account                       PA3JR0GVVEN0  (new, dedicated, paper)
+opening equity                $100,000.00
+closing equity                $99,827.64     -0.172%
+
+fills                         3 fills        all inside the window
+closes                        1 close        automated, by its own trigger
+guard refusals                per-day cap, position cap, no-stacking
+positions corrupted           0 corrupt
+
+every trade                   defined-risk bear call spread, 1 contract
+every position                inside its $1,000 max-loss cap
+risk budget used              ~25%   (contracts=1, guard only ever downsizes)
+
+BUGS FOUND BY RUNNING, ALL WHILE THE SUITE WAS GREEN
+  Mon   skill leak      analysts told to look for skills -> silent abstain
+  Mon   unfillable      mid-priced limit rested 55 min, blocked every cycle
+  Tue   trailing comma  a valid trade discarded over one character
+  Thu   collision       new leg reused a held contract -> broker rejected
+each: root-caused from the journal, fixed with a test, shipped mid-session

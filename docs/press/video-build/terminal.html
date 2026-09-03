@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>terminal</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0d10;overflow:hidden}
+  body{font-family:"JetBrains Mono","DejaVu Sans Mono",ui-monospace,monospace;color:#d7dde5}
+  .bar{height:44px;background:#15181d;border-bottom:1px solid #262b33;display:flex;align-items:center;padding:0 22px;gap:10px}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .title{margin-left:14px;font-size:15px;color:#8a94a3;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  pre{margin:0;padding:30px 40px 90px;font-size:25px;line-height:1.55;white-space:pre-wrap;word-break:break-word;height:calc(100vh - 44px);box-sizing:border-box;overflow-y:auto;scrollbar-width:none}
+  pre::-webkit-scrollbar{display:none}
+  .hl{color:#d0ff7e;font-weight:700}
+  .cur{display:inline-block;width:13px;height:28px;background:#d7dde5;vertical-align:-4px;animation:b 1s steps(1) infinite}
+  .foot{position:fixed;left:0;right:0;bottom:0;padding:16px 40px;font-size:22px;background:#101318;border-top:1px solid #262b33;color:#e75d60;font-weight:700;opacity:0;transition:opacity .4s}
+  @keyframes b{50%{opacity:0}}
+</style>
+<div class="bar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="title" id="t"></span></div>
+<pre id="p"></pre>
+<div class="foot" id="f"></div>
+<script>
+// Driven by Playwright: window.play({title, lines, highlight, footer, durationMs})
+// Types the text so it completes at ~72% of the audio, then holds. Highlighted
+// substrings light up as they appear, so a spoken number lands on screen as
+// the word is said.
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function mark(line, hls){
+  let h = esc(line);
+  for (const k of hls || []) {
+    const e = esc(k).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    h = h.replace(new RegExp(e, 'g'), m => `<span class="hl">${m}</span>`);
+  }
+  return h;
+}
+window.play = function(s){
+  document.getElementById('t').textContent = s.title || '';
+  const p = document.getElementById('p');
+  const lines = s.lines;
+  const total = lines.reduce((a,l)=>a+l.length+1, 0);
+  const budget = Math.max(1200, (s.durationMs || 8000) * 0.72);
+  const perChar = budget / Math.max(total, 1);
+  let li = 0, ci = 0, out = '';
+  function step(){
+    if (li >= lines.length){
+      p.innerHTML = out;
+      p.scrollTop = p.scrollHeight;
+      if (s.footer){ const f=document.getElementById('f'); f.textContent = s.footer; f.style.opacity = 1; }
+      return;
+    }
+    const line = lines[li];
+    // reveal a whole line in chunks to keep it smooth at 25fps
+    const chunk = Math.max(1, Math.round(6 / Math.max(perChar, 0.2)));
+    ci = Math.min(line.length, ci + chunk);
+    p.innerHTML = out + mark(line.slice(0, ci), s.highlight) + '<span class="cur"></span>';
+    p.scrollTop = p.scrollHeight;
+    if (ci >= line.length){ out += mark(line, s.highlight) + '\n'; li++; ci = 0; }
+    setTimeout(step, Math.max(8, perChar * chunk));
+  }
+  step();
+};
+</script>

@@ -1,0 +1,16 @@
+--
+  MODE: LIVE — orders WILL be sent to the broker this run.
+  ============================================================
+  managing 2 open trade(s) before looking for a new one
+    open   SPY bear_call_spread — no exit trigger fired (spot 773.73, 28 DTE, unrealized $-62.00)
+    open   SPY bear_call_spread — no exit trigger fired (spot 773.73, 42 DTE, unrealized $-19.00)
+  SPY spot $773.73 — 1726 candidate(s)
+  ATM IV (chain-derived, ~30 DTE): 12.10%
+  mode: LLM COMMITTEE — vol_analyst + bear_adversary -> trader -> thesis veto + blind veto
+  committee:
+    vol_analyst      p=0.70 — IV is 3.77pp above realized volatility, a substantial premium that favours selling—textbook setup for credit spreads. Strong candidate pool with high liquidity (c1, c2, c8, c9 all have >600 OI, tight bid-ask spreads) and workable term structure (26–42 DTE for theta decay). Primary risk: realized vol spike above 12.10%, or adverse directional move on leveraged short legs, but current 8.34% realized creates a margin of safety.
+    bear_adversary   p=0.58 — c1's bear_call_spread profits only on moves ≤0.42% over 42 days—nearly certain in a suppressed-vol regime, but the 3.77pp IV-realized gap is narrow and mean-reversion is plausible. If realized vol ticks toward 12.10% implied or a 2–3% gap event occurs within the window, the tight breakeven (776.96) is breached and max loss is realized. Thin short-leg liquidity (1154 OI) makes early exit costly, and assignment forces a loss on the long call.
+    aggregate probability: 0.64
+    trader: ABSTAIN — c2 sells the 785c/790c bear call spread with a breakeven at 787.14 (1.74% OTM), giving a much wider margin of safety than c1's razor-thin 776.96 breakeven (0.42% OTM), while still capturing the IV-over-realized premium; strike liquidity (>13,000 OI both legs) is far deeper than c1's 1154, reducing exit/assignment risk the bear_adversary flagged.
+    veto thesis: PASS — net delta -6.94 consistent with bear_call_spread's bearish thesis
+    veto blind:  VETO — 8.34% realized vol indicates a calm market suitable for premium collection; without trend or momentum data, the bearish directional bias lacks clear justification—the setup reads as neutral range-bound rather than directionally bearish.

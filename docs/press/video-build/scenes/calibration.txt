@@ -1,0 +1,6 @@
+Calibration report — logs/seed_journal.jsonl
+role              resolved    brier   weight   interpretation
+----------------------------------------------------------------------------------------
+vol_analyst             12    0.162     1.18   well-calibrated (beats the 0.25 always-0.5 baseline) — upweighted
+bear_adversary          12    0.298     0.90   worse than baseline — down-weighted
+24 resolved prediction(s) across 2 role(s), computed fresh from the journal above. These weights ARE wired into committee/decide.py's aggregate() call: they are recomputed from the journal on every cycle and recorded in that cycle's trader_choice entry, so a judge can see which weights applied to which decision. A role below the minimum resolved count still weighs exactly 1.0 — unproven is not demoted.

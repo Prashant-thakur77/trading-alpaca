@@ -1,0 +1,30 @@
+19:28:01  cycle: /home/prashant/trading-alpaca/scripts/run_session.py --symbol SPY --live
+  ============================================================
+  MODE: LIVE — orders WILL be sent to the broker this run.
+  ============================================================
+  managing 1 open trade(s) before looking for a new one
+    open   SPY bear_call_spread — no exit trigger fired (spot 761.72, 31 DTE, unrealized $+27.00)
+  SPY spot $761.72 — 1852 candidate(s)
+  ATM IV (chain-derived, ~30 DTE): 12.75%
+  mode: LLM COMMITTEE — vol_analyst + bear_adversary -> trader -> thesis veto + blind veto
+  committee:
+    vol_analyst      p=0.79 — IV is 5.39pp rich to realized—a substantial signal to sell premium. Liquid credit spreads (c8 bull put 29 DTE, c1 bear call 17 DTE, c2 bear call 45 DTE) capture this skew with solid breakeven distances and OI; long-vol structures (c12 straddle, c10/c11 butterflies) buy expensive premium and fight the vol view.
+    bear_adversary   p=0.50 — Despite the +5.39pp IV-RV edge favoring short premium, the extreme gap indicates realized volatility may spike toward implied levels (12.75% vs 7.37%), pushing expected 17-day moves from $14.55 to $25+, which breaches the max-loss strike at 767. The 762 short call is at-the-money with high assignment risk, and gap/earnings risk over 17 DTE inadequately compensated by the $301 max profit versus $199 max loss—this is essentially a bet that realized vol *stays* depressed, not a robust edge.
+    aggregate probability: 0.65
+    trader: c2 — Sells the same IV-RV skew as c1 but with a short strike (770c) meaningfully OTM (~1.1%) rather than essentially at-the-money like c1's 762c, giving more room to absorb the adversary's realized-vol-spike scenario while still capturing rich premium over 45 DTE with deep liquidity (OI 8979/14365).
+    veto thesis: PASS — net delta -6.59 consistent with bear_call_spread's bearish thesis
+    veto blind:  PASS — With realized vol at only 7.37%, a bearish consolidation bias is reasonable; the short strike placed just 1.09% above spot and credit of $2.42 reflect appropriate tactical conviction in a low-momentum environment.
+  Selected bear_call_spread: credit $2.42, max loss $257.50
+  position greeks: delta -6.6, vega -3.4
+  book: 1 position(s), delta -6.9, vega -11.5, day P&L $+27.00, 0 consecutive loss(es), opened today {}
+  guard: ALLOW — Within all limits: risk $257.50, 2/3 positions (1 contract(s) approved)
+  pre-mortem exit plan:
+    credit_decay       0.5        deterministic profit target: close once 50% of the credit received is captured
+    dte_below          3          hard rule: close at 3 DTE to avoid assignment of a short leg into stock
+    underlying_beyond  772.42     Underlying breaks the breakeven threshold, pushing the spread into losses at expiration
+    underlying_beyond  770        Underlying reaches the short strike with significant DTE remaining, signaling directional thesis failure
+    iv_spike           0.2        Implied volatility surges to 20%, substantially widening the call spread value against the short position
+    iv_spike           0.15       Realized volatility climbs to 15%, expanding the implied distribution and probability of breaching breakeven
+    dte_below          14         At 14 days to expiration, a losing position lacks time for mean reversion recovery before max loss realization
+    credit_decay       0.8        Exit after capturing 80% of the credit to lock in profits and protect against final-week adverse moves
+  Result: filled (filled)

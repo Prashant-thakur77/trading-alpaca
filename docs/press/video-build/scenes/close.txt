@@ -1,0 +1,11 @@
+  MODE: LIVE — orders WILL be sent to the broker this run.
+  ============================================================
+  managing 3 open trade(s) before looking for a new one
+    open   SPY bear_call_spread — no exit trigger fired (spot 772.94, 29 DTE, unrealized $-59.00)
+    CLOSED SPY bear_call_spread ($-70.50) — underlying_beyond at 772.42 fired: Underlying breaks the breakeven threshold, pushing the spread into losses at expiration
+    open   SPY bear_call_spread — no exit trigger fired (spot 772.94, 43 DTE, unrealized $-16.00)
+  SPY spot $772.94 — 1848 candidate(s)
+  ATM IV (chain-derived, ~30 DTE): 12.37%
+
+  journal: close   bear_call_spread   realized_pnl $-70.50
+  exit_reason: underlying_beyond at 772.42 fired: Underlying breaks the breakeven threshold, pushing the spread

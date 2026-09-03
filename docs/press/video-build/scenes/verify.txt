@@ -1,0 +1,8 @@
+allow        OK
+deny         OK
+downsize     OK
+fail_closed  OK
+    close        1
+    fill         3
+  Chain:    INTACT
+  Tip hash: 6f05d5b34918d5f6f9d556195d84dcf91825347280c970b10a5980f242511eb9
