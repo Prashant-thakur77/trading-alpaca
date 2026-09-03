@@ -108,8 +108,13 @@ no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
 - [ ] Live session #2
 
 ## Phase 6 — Thu Sep 3: demo assets
-- [ ] Live session #3 for footage; record + edit 2–4 min video (honest
+- [x] Live session #3 for footage; record + edit 2–4 min video (honest
       live-vs-backtest numbers side by side); presentation PDF with real text
+      → 2026-09-04: docs/press/demo.mp4, 3:55. Nine scenes over the live site
+        and verbatim log text; narration via Chatterbox TTS; each scene
+        recorded to its narration length so sync holds by construction.
+        Script as recorded in docs/press/video-script.md; build in
+        docs/press/video-build/. Deck + one-pager PDFs already shipped.
 
 ## Phase 7 — Fri Sep 4: ship
 - [ ] Flatten all positions; journal verify; freeze
