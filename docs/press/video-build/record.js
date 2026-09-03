@@ -10,7 +10,7 @@ const ROOT = __dirname;
 const scenes = JSON.parse(fs.readFileSync(path.join(ROOT, 'scenes.json'), 'utf8')).scenes;
 const durations = JSON.parse(fs.readFileSync(path.join(ROOT, 'audio', 'durations.json'), 'utf8'));
 const TAIL_MS = 700;
-const only = process.argv[2]; // optional: record a single scene id
+const only = process.argv[2]; // optional: a scene id, or 'terminal' for all terminal scenes
 
 function readLines(file, spec) {
   let lines = fs.readFileSync(path.join(ROOT, file), 'utf8').split('\n');
@@ -40,7 +40,7 @@ async function act(page, action, budgetMs) {
   fs.mkdirSync(path.join(ROOT, 'video'), { recursive: true });
 
   for (const s of scenes) {
-    if (only && s.id !== only) continue;
+    if (only === 'terminal' ? s.screen.type !== 'terminal' : (only && s.id !== only)) continue;
     const durMs = Math.round((durations[s.id] || 8) * 1000) + TAIL_MS;
     const ctx = await b.newContext({
       viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1,

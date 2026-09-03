@@ -35,26 +35,34 @@ window.play = function(s){
   document.getElementById('t').textContent = s.title || '';
   const p = document.getElementById('p');
   const lines = s.lines;
-  const total = lines.reduce((a,l)=>a+l.length+1, 0);
+  // Pre-render every line's highlighted HTML once; per-frame work is then a slice.
+  const html = lines.map(l => mark(l, s.highlight));
+  const lens = lines.map(l => l.length + 1);
+  const total = lens.reduce((a,b)=>a+b, 0);
   const budget = Math.max(1200, (s.durationMs || 8000) * 0.72);
-  const perChar = budget / Math.max(total, 1);
-  let li = 0, ci = 0, out = '';
-  function step(){
-    if (li >= lines.length){
-      p.innerHTML = out;
-      p.scrollTop = p.scrollHeight;
-      if (s.footer){ const f=document.getElementById('f'); f.textContent = s.footer; f.style.opacity = 1; }
-      return;
+  const t0 = performance.now();
+  let done = false;
+  function render(nChars){
+    // draw all fully-revealed lines, then a partial current line, then the cursor
+    let acc = 0, out = '';
+    for (let i = 0; i < lines.length; i++){
+      if (acc + lens[i] <= nChars){ out += html[i] + '\n'; acc += lens[i]; continue; }
+      const k = Math.max(0, nChars - acc);
+      out += mark(lines[i].slice(0, k), s.highlight) + '<span class="cur"></span>';
+      p.innerHTML = out; p.scrollTop = p.scrollHeight; return false;
     }
-    const line = lines[li];
-    // reveal a whole line in chunks to keep it smooth at 25fps
-    const chunk = Math.max(1, Math.round(6 / Math.max(perChar, 0.2)));
-    ci = Math.min(line.length, ci + chunk);
-    p.innerHTML = out + mark(line.slice(0, ci), s.highlight) + '<span class="cur"></span>';
-    p.scrollTop = p.scrollHeight;
-    if (ci >= line.length){ out += mark(line, s.highlight) + '\n'; li++; ci = 0; }
-    setTimeout(step, Math.max(8, perChar * chunk));
+    p.innerHTML = out; p.scrollTop = p.scrollHeight; return true;
   }
-  step();
+  function frame(){
+    const frac = Math.min(1, (performance.now() - t0) / budget);
+    const finished = render(Math.floor(frac * total));
+    if (finished || frac >= 1){
+      render(total);
+      if (s.footer){ const f=document.getElementById('f'); f.textContent = s.footer; f.style.opacity = 1; }
+      done = true; return;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 };
 </script>
