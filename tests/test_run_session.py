@@ -144,3 +144,55 @@ def test_multi_expiry_chain_never_pairs_legs_across_expiries():
     for intent in intents:
         expiries = {leg.quote.expiry for leg in intent.legs}
         assert len(expiries) == 1
+
+
+# ── excluding candidates that collide with an already-open position ────
+
+def _held_symbols_from(candidate):
+    """Every leg symbol of a candidate, as if that candidate were already open."""
+    return {leg.quote.symbol for leg in candidate.legs}
+
+
+def test_a_candidate_reusing_a_held_symbol_is_dropped():
+    """Regression for 2026-09-03 19:55 IST.
+
+    A live cycle held a bear call spread long SPY261016C00775000 from an
+    earlier fill, then the committee picked a NEW bear call spread whose
+    short leg SOLD that exact same contract. Alpaca rejected the order:
+
+        "position intent mismatch, inferred: sell_to_close,
+         specified: sell_to_open"
+
+    because selling a contract we already hold long closes it rather than
+    opening a new short — a completely different, unintended action. The
+    order died at the broker with a wasted slot; nothing corrupted, but
+    nothing traded either. The desk must never OFFER a candidate the broker
+    cannot cleanly open, not merely rely on the broker to reject it.
+    """
+    from run_session import _drop_candidates_overlapping_positions
+
+    cands = build_candidates(_chain(), "SPY", spot=450.0)
+    assert len(cands) > 1
+    poisoned = cands[0]
+    held = _held_symbols_from(poisoned)
+
+    survivors = _drop_candidates_overlapping_positions(cands, held)
+
+    assert poisoned not in survivors
+    assert all(not (_held_symbols_from(c) & held) for c in survivors)
+
+
+def test_a_candidate_with_no_overlap_survives():
+    from run_session import _drop_candidates_overlapping_positions
+
+    cands = build_candidates(_chain(), "SPY", spot=450.0)
+    survivors = _drop_candidates_overlapping_positions(
+        cands, held_symbols={"AAPL270101C00100000"})
+    assert survivors == cands
+
+
+def test_empty_holdings_changes_nothing():
+    from run_session import _drop_candidates_overlapping_positions
+
+    cands = build_candidates(_chain(), "SPY", spot=450.0)
+    assert _drop_candidates_overlapping_positions(cands, held_symbols=set()) == cands

@@ -295,6 +295,25 @@ through it even in principle. `alpaca-py` is used for analysis only.
 Evidence, including live CLI output and account provenance:
 [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md).
 
+**Official account.** Paper account `PA3JR0GVVEN0`, created 2026-08-29, is the
+only account this repo has ever traded from — there is no separate testing
+account. Its equity sat flat at exactly $100,000.00 from creation through the
+official window's start (Monday 2026-08-31 09:30 ET); the one order submitted
+before then (Saturday, market closed) never filled and was cancelled, so it
+never touched equity or positions. Every filled order is timestamped inside
+the official measurement window. Verified directly against the account's
+order history and portfolio history, not asserted from memory.
+
+**Pre-event work.** This repo's git history starts 2026-08-29, after the
+hackathon window opened (Friday 2026-08-28 09:30 ET) — every commit was made
+during the event. The starting point for that first commit, however, was an
+existing personal crypto-trading codebase not written for this event. It was
+not adapted: [`docs/AUDIT.md`](docs/AUDIT.md) and `CLAUDE.md`'s disposition
+list name every inherited module, and the ones actually reachable from a
+shipping entry point are zero — the options desk (`committee/`, `risk_guard.py`,
+`journal.py`, `candidate_builder.py`, `executor_options.py`, and everything
+else listed there) was written during the event.
+
 ## What this does *not* claim
 
 Judges deserve stated limits:

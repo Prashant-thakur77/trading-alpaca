@@ -384,6 +384,29 @@ def build_candidates(chain, underlying: str, spot: float, width: float = 5.0) ->
     return candidates
 
 
+def _drop_candidates_overlapping_positions(candidates: list, held_symbols: set) -> list:
+    """Drop any candidate that would sell or buy a contract we already hold.
+
+    Regression for 2026-09-03 19:55 IST: with two spreads already open, the
+    committee picked a third bear call spread whose short leg SOLD the exact
+    contract the FIRST spread already holds long. Alpaca rejected it —
+    "position intent mismatch, inferred: sell_to_close, specified:
+    sell_to_open" — because selling a contract we hold long closes that
+    position rather than opening an unrelated new short. The order died at
+    the broker: no corruption, but a wasted slot and a candidate the desk
+    should never have offered the committee in the first place.
+
+    `build_candidates` stays pure and chain-only (its whole point is to be
+    exhaustive and deterministic over the market, not over runtime state), so
+    this filter is applied by the caller once it knows what is actually held,
+    rather than threading position state into the builder.
+    """
+    if not held_symbols:
+        return candidates
+    return [c for c in candidates
+            if not any(leg.quote.symbol in held_symbols for leg in c.legs)]
+
+
 def _build_candidates_for_expiry(chain, spot: float, width: float) -> list:
     """Candidate sweep within a single expiry's quotes."""
     puts = sorted([q for q in chain if q.right == "p"], key=lambda q: q.strike)
@@ -897,6 +920,8 @@ def main(argv=None, *, cli=None, data=None, journal=None, guard=None,
         return EXIT_FAILED
 
     candidates = build_candidates(chain, symbol, spot)
+    held_symbols = {str(p.get("symbol", "")) for p in positions}
+    candidates = _drop_candidates_overlapping_positions(candidates, held_symbols)
     print(f"  {symbol} spot ${spot:,.2f} — {len(candidates)} candidate(s)")
     if not candidates:
         return _abstain(journal, "no candidate passed the liquidity gate",
