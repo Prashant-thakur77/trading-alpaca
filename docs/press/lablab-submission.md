@@ -27,5 +27,7 @@ Options Alpha Agents
 - Repo: https://github.com/Prashant-thakur77/trading-alpaca
 - Demo URL: https://trading-alpaca-judge.vercel.app
 - Judge desk: https://trading-alpaca-judge.vercel.app/judge
-- Video: docs/press/demo.mp4 (4:22)
-- Deck: docs/press/trading-alpaca-deck.pdf
+- Presentation (15 slides): https://github.com/Prashant-thakur77/trading-alpaca/raw/main/docs/press/trading-alpaca-presentation.pdf
+- Presentation (.pptx): https://github.com/Prashant-thakur77/trading-alpaca/raw/main/docs/press/trading-alpaca-presentation.pptx
+- Short deck (6 slides): https://github.com/Prashant-thakur77/trading-alpaca/raw/main/docs/press/trading-alpaca-deck.pdf
+- Video: https://github.com/Prashant-thakur77/trading-alpaca/raw/main/docs/press/demo.mp4

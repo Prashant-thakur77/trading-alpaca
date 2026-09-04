@@ -121,6 +121,8 @@ no server process). alpaca-mcp-server is the Phase 3 agent tool layer.
         recorded to its narration length so sync holds by construction.
         Script as recorded in docs/press/video-script.md; build in
         docs/press/video-build/. Deck + one-pager PDFs already shipped.
+      → 2026-09-04: full reviewer presentation, 15 slides, PDF + .pptx from one
+        source (scripts/build_presentation.py), real site and log captures.
 
 ## Phase 7 — Fri Sep 4: ship
 - [ ] Flatten all positions; journal verify; freeze
