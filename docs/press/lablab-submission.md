@@ -4,7 +4,7 @@
 Trading Alpaca: an options desk that grades itself
 
 ## Short description
-An AI options desk where deterministic code builds every defined-risk trade and the LLM may only pick one by id or refuse. Two independent vetoes, a fail-closed risk guard, a hash-chained journal, and Brier-scored analysts that lose their vote when miscalibrated.
+An AI options desk where deterministic code builds every defined-risk trade and the LLM may only pick one or refuse. Two vetoes, a fail-closed risk guard, a hash-chained journal, and Brier-scored analysts that lose their vote when miscalibrated.
 
 ## Long description
 Most trading agents ask a language model what to buy and act on the answer. This desk inverts that: deterministic Python enumerates every legal, defined-risk options structure the live SPY chain supports (about 1,500 fully priced candidates per cycle), and the analyst committee may only pick one by id or ABSTAIN. There is no code path by which a model can invent a strike, change a quantity, or move a limit price.
