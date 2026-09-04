@@ -1,0 +1,217 @@
+<!doctype html><meta charset="utf-8"><title>Trading Alpaca — presentation</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--ground:#161818;--g2:#0b0c0c;--ink:#f9f4eb;--dim:rgba(249,244,235,.70);--muted:rgba(249,244,235,.45);
+ --hair:rgba(249,244,235,.14);--coral:#e75d60;--lime:#d0ff7e;
+ --sans:"Inter Tight",Helvetica,Arial,sans-serif;--mono:"JetBrains Mono",Menlo,monospace}
+@page{size:1280px 720px;margin:0}
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.4}
+.slide{width:1280px;height:720px;padding:52px 64px 44px;display:flex;flex-direction:column;position:relative;
+ page-break-after:always;overflow:hidden;background:var(--ground)}
+.slide:last-child{page-break-after:auto}
+.tag{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.tag::before{content:"[ "}.tag::after{content:" ]"}
+h1{font-size:44px;font-weight:800;text-transform:uppercase;letter-spacing:-.03em;line-height:.95;margin:12px 0 18px;white-space:pre-line}
+.title h1{font-size:64px;margin-top:16px}
+.body{display:flex;gap:36px;flex:1;min-height:0}
+.body.split>.txt{flex:0 0 46%}.body.split>.img{flex:1}
+.body.wide{flex-direction:column;gap:14px}.body.wide>.img{flex:1;min-height:0}
+ul{list-style:none;display:flex;flex-direction:column;gap:11px}
+li{color:var(--dim);font-size:16.5px;padding-left:20px;position:relative;line-height:1.38}
+li::before{content:"\2192";position:absolute;left:0;color:var(--coral)}
+li b{color:var(--ink);font-weight:600}
+.img{background:var(--g2);border-radius:6px;overflow:hidden;border:1px solid var(--hair);display:flex;align-items:center;justify-content:center}
+.img img{width:100%;height:100%;object-fit:contain;object-position:top}
+table{width:100%;border-collapse:collapse;font-size:15.5px;margin-top:6px}
+th{text-align:left;color:var(--muted);font-family:var(--mono);font-weight:400;font-size:11px;letter-spacing:.12em;
+ text-transform:uppercase;padding:8px 10px 8px 0;border-bottom:1px solid var(--hair)}
+td{padding:8.5px 10px 8.5px 0;border-bottom:1px solid var(--hair);color:var(--dim);vertical-align:top}
+td:first-child{color:var(--ink);font-family:var(--mono);font-size:14px;white-space:nowrap}
+.note{border-left:2px solid var(--coral);padding:10px 0 10px 16px;color:var(--dim);font-size:14.5px;margin-top:auto;line-height:1.4}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;flex:1;align-content:center}
+.flow .box{background:var(--g2);border:1px solid var(--hair);border-radius:6px;padding:16px 14px;min-height:250px;position:relative}
+.flow .box .n{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.flow .box .k{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:6px 0 10px}
+.flow .box .k.no{color:var(--coral)}
+.flow .box p{font-size:13.5px;color:var(--dim);line-height:1.38}
+.flow .box::after{content:"\2192";position:absolute;right:-13px;top:44%;color:var(--coral);font-size:18px}
+.flow .box:last-child::after{content:""}
+.links{display:flex;flex-direction:column;gap:12px;margin-top:6px}
+.links a{color:var(--ink);text-decoration:none;font-size:18px}
+.links a span{display:block;font-family:var(--mono);font-size:14px;color:var(--lime)}
+pre{font-family:var(--mono);font-size:13.5px;color:var(--dim);background:var(--g2);border:1px solid var(--hair);
+ border-radius:6px;padding:14px 16px;margin-top:14px;line-height:1.6;white-space:pre-wrap;word-break:break-all}
+.n{position:absolute;right:64px;bottom:26px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.foot{position:absolute;left:64px;bottom:26px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+</style><section class="slide title">
+<p class="tag">Alpaca AI Trading Agents · Options Alpha Agents</p>
+<h1>Trading Alpaca:
+the options desk
+that grades itself</h1>
+<div class="body split">
+<div class="txt"><ul><li>Deterministic code builds every trade. A language model may only pick one by id, or refuse.</li><li>Two independent vetoes · a fail-closed risk guard · a hash-chained journal · analysts that are Brier-scored and lose their vote when miscalibrated.</li><li>Live site: https://trading-alpaca-judge.vercel.app</li><li>Judge desk (no credentials needed): https://trading-alpaca-judge.vercel.app/judge</li><li>Code: https://github.com/Prashant-thakur77/trading-alpaca</li></ul></div>
+<div class="img"><img src="deck-assets/site-hero-crop.png"></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">01 / 15</div></section>
+<section class="slide">
+<p class="tag">The problem</p>
+<h1>Most agents ask a model what to buy.
+This one never lets it answer.</h1>
+<div class="body split">
+<div class="txt"><ul><li>Asking an LLM "what should I trade?" is fast to build and impossible to trust.</li><li>It can hallucinate a strike, size a position wrongly, or be confidently wrong with no record of why.</li><li>So this desk hands the model a numbered menu it did not write. It may return one id, or the word ABSTAIN.</li><li>A hallucinated id is treated as an abstention. There is no code path by which a model can invent a strike, change a quantity, or move a price.</li></ul></div>
+<div class="img"><img src="deck-assets/site-invert-crop.png"></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">02 / 15</div></section>
+<section class="slide">
+<p class="tag">How it works</p>
+<h1>Six stages. Four of them can say no.</h1>
+<div class="flow">
+<div class="box"><div class="n">01</div><div class="k">BUILD</div><p>code enumerates every legal defined-risk structure from the live chain, fully priced</p></div>
+<div class="box"><div class="n">02</div><div class="k no">ARGUE</div><p>a vol analyst and a bear adversary each return a probability; a trader picks an id or ABSTAINs</p></div>
+<div class="box"><div class="n">03</div><div class="k no">VETO</div><p>a pure-code thesis check, then a blind LLM review that never sees the committee's reasoning</p></div>
+<div class="box"><div class="n">04</div><div class="k no">GUARD</div><p>RiskGuard enforces risk.yaml: ALLOW / DENY / DOWNSIZE, fail-closed on any error</p></div>
+<div class="box"><div class="n">05</div><div class="k">EXECUTE</div><p>one atomic multi-leg order via the Alpaca CLI; a pre-mortem compiles exit triggers</p></div>
+<div class="box"><div class="n">06</div><div class="k no">GRADE</div><p>closes resolve each analyst's predictions; Brier scores recompute their weights</p></div>
+</div>
+<div class="note">Every stage appends to a hash-chained journal. Every refusal is recorded with its reason.</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">03 / 15</div></section>
+<section class="slide">
+<p class="tag">Stage 1 · Build</p>
+<h1>Every candidate is fully specified
+before any model is called.</h1>
+<div class="body split">
+<div class="txt"><ul><li>Python reads the live SPY option chain and constructs every legal defined-risk structure: bull put, bear call, bull call and bear put spreads, iron condors, long straddles and butterflies.</li><li>Each has strikes, legs, quantity, limit price, max loss and breakeven fixed by code.</li><li>Liquidity gates first: open interest ≥ 100, quote width ≤ 10% of mid, 7–45 days to expiry.</li><li>A live cycle reads ~3,700 contracts, ~1,100 pass liquidity, ~600–1,800 structures are built, 12 are shown to the committee.</li><li>There is no function in the codebase that produces a naked short option.</li></ul></div>
+<div class="img"><img src="deck-assets/judge-cands-crop.png"></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">04 / 15</div></section>
+<section class="slide">
+<p class="tag">Stage 2 · Argue</p>
+<h1>Probabilities, not verdicts.
+An adversary argues against every trade.</h1>
+<div class="body wide">
+<div class="txt"><ul><li>vol_analyst judges implied vs realized volatility; bear_adversary's only job is to find what breaks the trade. Each returns a probability, and an abstaining analyst is excluded from both numerator and denominator.</li><li>The trader picks one id or ABSTAINs. In this live cycle it moved from c1 to c2 because the adversary flagged c1's at-the-money short strike — the objection changed the trade, and is journalled either way.</li></ul></div>
+<div class="img"><img src="deck-assets/term-committee.png"></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">05 / 15</div></section>
+<section class="slide">
+<p class="tag">Stage 3 · Veto</p>
+<h1>Two reviewers with decorrelated failure modes.</h1>
+<div class="body split">
+<div class="txt"><ul><li>Two calls to the same model on the same context agree with each other and prove nothing.</li><li>Gate 1 is pure code: do the position's Greeks match the structure's own directional thesis? Unmeasurable Greeks fail closed.</li><li>Gate 2 is an LLM deliberately starved of the committee's reasoning, shown only the trade's own facts.</li><li>Live on Thursday: a candidate passed the thesis check and was vetoed by the blind review — "requires conviction SPY won't rally 1.4% over 44 days." The desk abstained.</li></ul></div>
+<div class="img"><img src="deck-assets/judge-failclosed-crop.png"></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">06 / 15</div></section>
+<section class="slide">
+<p class="tag">Stage 4 · Guard</p>
+<h1>risk.yaml is the single source of truth.
+The guard fails closed.</h1>
+<table><tr><th>Limit</th><th>Value</th></tr>
+<tr><td>Max loss per position</td><td>$1,000 (1% of equity)</td></tr>
+<tr><td>Concurrent positions</td><td>3</td></tr>
+<tr><td>New trades per underlying per day</td><td>1</td></tr>
+<tr><td>Net delta / net vega</td><td>|Δ| ≤ 30 · |ν| ≤ 200</td></tr>
+<tr><td>Days to expiry</td><td>7 – 45</td></tr>
+<tr><td>Liquidity</td><td>OI ≥ 100 · spread ≤ 10% of mid</td></tr>
+<tr><td>Daily loss halt</td><td>2% of equity</td></tr>
+<tr><td>After 3 consecutive losers</td><td>size halved</td></tr>
+<tr><td>Any error, missing data, or exception</td><td>DENY</td></tr>
+</table>
+<div class="note">Verified by 933 tests, including mutation tests that prove a guard exception denies rather than trades. A kill-switch file halts everything within a minute.</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">07 / 15</div></section>
+<section class="slide">
+<p class="tag">Stage 5 · Execute and exit</p>
+<h1>It manages the book before it adds to it.</h1>
+<div class="body wide">
+<div class="txt"><ul><li>Orders are one atomic multi-leg limit through the official Alpaca CLI. Live fills came in at better than their limits ($2.35 vs $1.94, $1.48 vs $1.22).</li><li>Before the trade is sent, a pre-mortem asks the model how it fails, then compiles those failure modes into deterministic exit triggers.</li><li>Three exits apply to every position regardless of any model: 50% of credit captured, max loss, and a forced close at 3 DTE.</li><li>Thursday: the breakeven trigger set at entry fired at 772.42 and the desk closed the spread itself at −$70.50, before the loss could grow toward its $352 max.</li></ul></div>
+<div class="img"><img src="deck-assets/term-close-crop.png"></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">08 / 15</div></section>
+<section class="slide">
+<p class="tag">Stage 6 · Grade itself</p>
+<h1>An analyst that is confidently wrong loses its vote.</h1>
+<table><tr><th>Analyst</th><th>Resolved</th><th>Brier</th><th>Weight</th><th>Interpretation</th></tr>
+<tr><td>vol_analyst</td><td>12</td><td>0.162</td><td>1.18</td><td>beats the 0.25 always-0.5 baseline — upweighted</td></tr>
+<tr><td>bear_adversary</td><td>12</td><td>0.298</td><td>0.90</td><td>worse than baseline — down-weighted</td></tr>
+</table>
+<div class="note">Closes resolve the probabilities each analyst gave; Brier scores recompute weights every cycle and feed the next aggregate. Twelve resolved trades is a small sample and is stated as one — the loop is the point, not the score.</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">09 / 15</div></section>
+<section class="slide">
+<p class="tag">Refusal is the product</p>
+<h1>Over 43 replayed decisions,
+it refused 72% of the time.</h1>
+<div class="body split">
+<div class="txt"><ul><li>The real committee replayed over 43 post-knowledge-cutoff windows: 31 refusals, 12 executable trades.</li><li>Every refusal gave a reason. The reasons are what matter: after the structure menu was fixed, zero refusals cited a missing structure; seven of eight were the two reviewers failing to agree.</li><li>Replayed at $0.00: every LLM call is content-addressed and cached with its prompt, raw response and parse.</li><li>This is not timidity. A desk that cannot say no cannot be trusted when it says yes.</li></ul></div>
+<div class="img"><img src="deck-assets/site-refuse-crop.png"></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">10 / 15</div></section>
+<section class="slide">
+<p class="tag">Analytics</p>
+<h1>The volatility smile — and its noise floor.</h1>
+<div class="body split">
+<div class="txt"><ul><li>A cubic fitted per expiry on ln(K/S)/√T across the liquid strikes only; 14 of 17 liquid groups fit.</li><li>A strike is coloured only if its distance from the curve exceeds its own bid-ask spread. Everything grey scores exactly zero.</li><li>We measured it, and deliberately did not let it pick strikes: the median deviation is worth about $3.94 per contract against a $4.00 quoted spread.</li><li>Measurement is not edge, and the desk knows the difference.</li></ul></div>
+<div class="img"><img src="deck-assets/smile-crop.png"></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">11 / 15</div></section>
+<section class="slide">
+<p class="tag">Live · official measurement window</p>
+<h1>What actually happened.</h1>
+<table><tr><th></th><th></th></tr>
+<tr><td>Account</td><td>PA3JR0GVVEN0 — new, dedicated, paper, created 2026-08-29</td></tr>
+<tr><td>Opening equity</td><td>$100,000.00, flat until the window opened</td></tr>
+<tr><td>Closing equity (Thu 3 Sep EOD)</td><td>$99,827.64   (−0.17%)</td></tr>
+<tr><td>Fills</td><td>3, all inside the window, each at better than its limit</td></tr>
+<tr><td>Closes</td><td>1, automated, on its own breakeven trigger (−$70.50)</td></tr>
+<tr><td>Guard refusals</td><td>per-day cap, position cap, no-stacking</td></tr>
+<tr><td>Positions corrupted</td><td>0</td></tr>
+<tr><td>Every trade</td><td>a defined-risk bear call spread, 1 contract, inside its $1,000 cap</td></tr>
+</table>
+<div class="note">Judged on total equity, this is flat. Three bear call spreads were one directional view expressed three times, and SPY rallied. We state that rather than hide it.</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">12 / 15</div></section>
+<section class="slide">
+<p class="tag">Found by running, not by reading</p>
+<h1>Four bugs, all while the test suite was green.</h1>
+<table><tr><th>Day</th><th>Bug</th><th>What it cost</th><th>Fix</th></tr>
+<tr><td>Mon</td><td>Skill leak</td><td>the host's plugin told analysts to look for skills first → silent abstain</td><td>--setting-sources "" isolates the model call</td></tr>
+<tr><td>Mon</td><td>Unfillable limit</td><td>mid-priced order rested 55 min, blocked every later cycle</td><td>20% marketable concession at the one live pricing site</td></tr>
+<tr><td>Tue</td><td>Trailing comma</td><td>a valid, reasoned trade decision discarded over one character</td><td>string-aware JSON repair, fail-closed otherwise</td></tr>
+<tr><td>Thu</td><td>Leg collision</td><td>new spread sold a contract already held long → broker rejected</td><td>filter candidates against current holdings</td></tr>
+</table>
+<div class="note">Each was root-caused from the journal and prompt cache, fixed with a regression test, and shipped mid-session. That is the argument for the journal.</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">13 / 15</div></section>
+<section class="slide">
+<p class="tag">What this does not claim</p>
+<h1>Stated limits, not omitted ones.</h1>
+<div class="body split">
+<div class="txt"><ul><li>One closed trade and two open ones prove nothing statistically, and we do not imply otherwise.</li><li>Paper fills are simulated against live quotes. No counterparty took the other side.</li><li>The desk used ~25% of its own risk budget: candidates are built at 1 contract and the guard only ever downsizes. Known, documented, unchanged during scoring.</li><li>Walk-forward backtests (13 windows, 90-day fit / 30-day test) are labelled as backtests; AAPL loses (PF 0.83) and the report says so.</li><li>The previous author's hardcoded performance claims were deleted, not adapted.</li></ul></div>
+</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">14 / 15</div></section>
+<section class="slide">
+<p class="tag">Try it yourself</p>
+<h1>Everything here is verifiable without credentials.</h1>
+<div class="body split"><div class="txt"><div class="links">
+<a href="https://trading-alpaca-judge.vercel.app">Live site<span>https://trading-alpaca-judge.vercel.app</span></a>
+<a href="https://trading-alpaca-judge.vercel.app/judge">Judge desk — replay four real decisions, two of them refusals<span>https://trading-alpaca-judge.vercel.app/judge</span></a>
+<a href="https://trading-alpaca-judge.vercel.app/smile">Volatility smile<span>https://trading-alpaca-judge.vercel.app/smile</span></a>
+<a href="https://github.com/Prashant-thakur77/trading-alpaca">Source, tests, journal, and every prompt<span>https://github.com/Prashant-thakur77/trading-alpaca</span></a>
+<a href="https://github.com/Prashant-thakur77/trading-alpaca/raw/main/docs/press/demo.mp4">Demo video (4:22)<span>https://github.com/Prashant-thakur77/trading-alpaca/raw/main/docs/press/demo.mp4</span></a>
+</div></div><div class="txt"><pre>git clone https://github.com/Prashant-thakur77/trading-alpaca
+cd trading-alpaca &amp;&amp; make install
+make test            # 933 tests, offline
+make judge           # 4 judge scenarios, no keys
+make verify-journal  # hash chain intact</pre></div></div>
+<div class="note">Compliance: orders route through the official Alpaca CLI; market data through the official Alpaca MCP server with read-only toolsets (no trading toolset is exposed, so an LLM cannot place an order through it). alpaca-py is used for analysis only.</div>
+<div class="foot">trading-alpaca · paper account only · trading-alpaca-judge.vercel.app</div>
+<div class="n">15 / 15</div></section>

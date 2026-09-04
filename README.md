@@ -11,6 +11,8 @@ no credentials, no API keys, no model calls. Two of the four are refusals.
 
 **🎬 [Demo video — 4:22](docs/press/demo.mp4)** · every number spoken is on screen, every terminal is real log text; [script as recorded](docs/press/video-script.md) · [reproducible build](docs/press/video-build/)
 
+**📑 [Presentation — 15 slides](docs/press/trading-alpaca-presentation.pdf)** ([.pptx](docs/press/trading-alpaca-presentation.pptx)) · one stage per slide, real screenshots and log captures, live results, stated limits, and where to click to test it
+
 
 ![The desk](docs/assets/01-hero.png)
 
